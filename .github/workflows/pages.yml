@@ -1,0 +1,83 @@
+name: verify
+
+# Offline checks only. Nothing in this workflow authenticates to an org, deploys
+# metadata, or needs a secret — it must stay runnable by anyone who forks the repo.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  metadata:
+    name: Metadata + guides
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Validate manifests and force-app contents
+        run: node scripts/validate-metadata.js
+
+      # Catches the silent content bugs: a quiz answer index pointing past the
+      # end of its options, an exercise id with no matching answer, a phase
+      # mapped to an exam domain that does not exist.
+      - name: Validate site curriculum and answers
+        run: node scripts/check-site-data.js
+
+      # Fails the build if docs/guide/ has drifted from the canonical guides, so a
+      # forgotten `npm run sync:guides` can never ship stale content to the site.
+      - name: Verify guides are mirrored
+        shell: pwsh
+        run: ./scripts/sync-guides.ps1 -Check
+
+      - name: Check formatting
+        run: npm ci --no-audit --no-fund && npm run prettier:verify
+
+      - name: Lint
+        run: npm run lint
+
+  pages:
+    name: Deploy site to GitHub Pages
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [metadata]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Mirror guides into the published site
+        shell: pwsh
+        run: ./scripts/sync-guides.ps1
+
+      # The site is plain HTML/CSS/JS with no bundler, so the artifact is just
+      # docs/ served as-is. No build step, no node_modules, no framework churn.
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+      - id: deploy
+        uses: actions/deploy-pages@v4

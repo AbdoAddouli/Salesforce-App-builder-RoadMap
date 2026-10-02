@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<!--
+    The code escape hatch — kept separate on purpose.
+
+    CRT-403 sits in the Salesforce Associate family: it does NOT ask you to write
+    Apex. These are the only code components in the lab, and each exists to teach
+    a decision point rather than to build a feature:
+
+      CertificationTrigger   — "reach for a trigger" vs. "reach for Flow" (phase 5)
+      RollupSummaryService  — the classic case where declarative automation is
+                              insufficient, so you need a trigger + async Apex
+
+    Phase 9 also ships one LWC (`recordBadges`) purely to demonstrate component
+    customisation; the LWC bundle is not listed here because the exam does not
+    assess component development.
+
+        sf project deploy start --manifest manifest/package-code.xml
+-->
+<Package xmlns="http://soap.sforce.com/2006/04/metadata">
+    <types>
+        <members>CertificationTrigger</members>
+        <name>ApexTrigger</name>
+    </types>
+    <types>
+        <members>RollupSummaryService</members>
+        <members>RollupSummaryServiceTest</members>
+        <name>ApexClass</name>
+    </types>
+    <version>68.0</version>
+</Package>

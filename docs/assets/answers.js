@@ -1,0 +1,3222 @@
+/* ============================================================================
+ * answers.js — worked solutions for the academy exercises.
+ * ----------------------------------------------------------------------------
+ * The site hides a reveal button for any exercise id missing from this map, so
+ * the mapping between curriculum.js block ids and the keys below is checked
+ * offline by `npm run check:site` (it fails on both orphan answers and
+ * unreferenced exercises).
+ *
+ * The value is rendered as lightweight Markdown (the app's own md()), so
+ * **bold**, `code`, lists, tables and fenced code blocks all work. Keep the key
+ * EXACTLY equal to the block's `id`.
+ * ========================================================================== */
+
+const EXERCISE_ANSWERS = {
+  '1.1': `
+**A** → **Page layout.** "Show Payment Terms above the Billing Address section" is purely
+presentational: it changes where an existing field sits. No new data, so no custom field,
+no custom object.
+
+**B** → **Custom field on Product** (e.g. \`Part_Number__c\`). Product is a standard object
+you need to *add a column to*, not replace. A field is the right answer; a new object would
+give replacement parts their own tab, which is not wanted.
+
+**C** → **Roll-up summary field on Opportunity.** Summing *all* child line items is an
+aggregate across a variable number of related records — that is a roll-up summary. A formula
+field cannot do it, because a formula reads the single parent record (and at most one level
+of related fields), not "every child".
+
+**D** → **Validation rule on Opportunity.** The rule forbids an impossible state
+(Closed Won with a future Close Date). Validation rules reject the save itself; that is the
+lightest feature that enforces the rule.
+
+**The pattern to remember:**
+
+| If the requirement is... | Use |
+| --- | --- |
+| Reorder / regroup existing fields | Page layout / App Builder |
+| Store a new value the user types | Custom field |
+| Derive a value from the same record | Formula field |
+| Sum/average children onto a parent | Roll-up summary field |
+| Forbid a save under some condition | Validation rule |
+| Do something automatically on save | Record-triggered flow |
+| Require an approval before advancing | Approval process |
+`,
+  '1.2': `
+**How to tell custom from standard:** custom fields and objects always end in \`__c\`. So on
+Account you will see labels like *Account Number* / *Annual Revenue* (standard) alongside
+anything the org has added, each custom one carrying the \`__c\` suffix. Standard objects can
+never be deleted; custom ones can.
+
+**Sections on the Account page layout:** typically *Account Details* (name, type, owner),
+*Billing Address*, *Shipping Address*, a *Description* / *System* area, plus related lists
+(Contacts, Opportunities, Cases) in the tabbed body. The exact layout depends on the org's
+page layout, which is the point — a layout is a configuration, not data.
+
+**Why a list, not one record:** a tab opens a **list view** — a saved query that scopes the
+object to a set of records (often "recently viewed" or "all", with filters). A tab is the
+plural doorway; you click a row from the list to open the **single-record detail page**.
+
+**API name vs label:** the Opportunity object's API name is \`Opportunity\` (no suffix, because
+it is standard). For a custom object the API name matches the label but carries the suffix,
+e.g. label *Quote Request* → API name \`Quote_Request__c\`. Setup shows both on the object's
+detail page, and API names are what appear in the API, SOQL and permission sets.
+`,
+  '1.3': `
+This is a design document, so there is no single right answer — but here is a defensible
+version for Brightline. Compare yours against these choices and the reasoning behind them.
+
+### Standard objects and their roles
+| Object | Role in Lead-to-Cash |
+| --- | --- |
+| **Lead** | An unqualified enquiry from web / trade show / referral. Lives until converted. |
+| **Account** | The customer company. Parent of the deal; converted from a Lead. |
+| **Contact** | The person at the customer company. Converted from a Lead. |
+| **Opportunity** | A specific potential sale — amount, stage, close date. |
+| **Contract** | The signed agreement, generated from a won Opportunity. |
+| **Product** | The equipment and parts being sold; drives line items and price. |
+
+### Three custom objects worth adding
+1. **Quote_Request__c** — *why:* a customer asks for a formal quote with several product
+   lines before an Opportunity exists. It needs its own tab and its own lifecycle
+   (Draft → Submitted → Approved → Expired). *Relationship:* master-detail **from**
+   Opportunity? No — a quote request can arrive *before* there is an Opportunity. Make it a
+   **lookup to Account** (optional), and give it a child **Quote_Request_Line__c** (master-detail
+   to the request) for the products. That is many-to-many-with-attributes in effect.
+2. **Discount_Request__c** — *why:* reps cannot always apply a large discount; it must be
+   approved. It needs to be audited separately from the Opportunity. *Relationship:* lookup to
+   Opportunity (which deal it affects) — a plain lookup, because you want the request to exist
+   even if the opportunity is later merged or deleted, and you want to relate it to *possibly*
+   several opportunities over time.
+3. **Territory__c** — *why:* sales is split into regions, and each opportunity should belong to
+   exactly one territory (for routing, sharing and reporting). *Relationship:* lookup from
+   Opportunity (each deal in one territory), and from Account (each customer in one territory).
+   Because exactly one territory applies, a lookup — not master-detail (master-detail would
+   force the territory's fields onto the deal and make the territory undeletable while deals
+   reference it).
+
+### Why a junction object if you also track competitors
+If a given Opportunity can lose to several **Competitor__c** records, that is many-to-many and
+needs a junction object, e.g. \`Opportunity_Competitor__c\` with two master-detail lookups (one
+to Opportunity, one to Competitor). Many-to-many is the case to reach for a junction for.
+
+### Happy path, one object in play per step
+1. **Lead** — a web enquiry arrives and is scored and assigned.
+2. **Lead → Account + Contact** — the rep *converts* the Lead, which creates the Account and
+   Contact and (optionally) the Opportunity. The Lead disappears.
+3. **Quote_Request__c** (custom) — the customer requests several part numbers; lines are added
+   as Quote_Request_Line__c children.
+4. **Opportunity** — the deal is created/updated, tied to the Account and the territory.
+5. **Contract** — once the Opportunity is Closed Won, a Contract is generated and signed.
+
+Note how the standard five carry the process and the custom objects sit *alongside* them,
+each existing because a real business concept (a quote, a discount approval, a territory) has
+no home in the standard set. That is the test: **if it needs its own records, its own lifecycle
+or its own reporting, it deserves its own object.**
+`,
+
+  /* ------------------------------------------------------------------ phase 2 */
+  '2.1': `
+Diagnose by symptom, in this order: app access → object CRUD → record sharing → field FLS.
+
+**1. "The Opportunities tab is not visible anywhere in my app launcher."**
+→ **Object access / profile.** The user lacks Read on the Opportunity object, or their profile
+does not expose the tab in an app they can open. Start with Profile → Object Permissions for
+Opportunity, then App Setup → Apps to see whether the tab is included.
+
+**2. "I can open Opportunities, but Amount is empty and I cannot type in it."**
+→ **Field-Level Security.** Object Read clearly works, because the record opens. The user is
+missing FLS on the Amount field (Read to see it, Update to edit it). Check the permission set's
+Field Permissions, not the object's sharing.
+
+**3. "My own Opportunity is there, but a colleague's in my region says insufficient access."**
+→ **Record-level sharing.** This is the signature of per-record access. Two sub-cases worth
+noting: if the colleague is *below* them in the role hierarchy, the hierarchy should already
+grant it, so check whether the manager is genuinely above them in the tree. Otherwise it is a
+sharing rule that is not covering that record's territory.
+
+**4. "I can see Account records, but not any accounts assigned to the other region."**
+→ **Record-level sharing at scale**, i.e. OWD or sharing rules rather than a per-record
+problem. Check the OWD on Account and whether any sharing rule widens it beyond this user's
+region. This one is deliberately the same *layer* as report 3 — the difference is scope, not
+mechanism, and that distinction is what the exam is testing.
+
+> The trap in report 4 is reaching for Manual/External sharing or a per-user grant. Neither
+> scales, and neither self-maintains when territories change.
+  `,
+
+  '2.2': `
+**The OWD choices.** A defensible position for Brightline:
+
+| Object | OWD | Justification |
+|--------|-----|---------------|
+| **Opportunity** | Private | Deal value, discount and competitor are commercially sensitive. Start at the tightest baseline and widen deliberately by territory. |
+| **Account** | Private, or Controlled by Parent if Accounts have a parent | Brightline's Accounts are mostly standalone companies, so there is no parent to inherit from; Private keeps it explicit. |
+| **Contact** | Controlled by Parent | A contact's visibility naturally follows the Account it belongs to — nobody should see a person at a company they cannot see. |
+
+**How the Regional Manager gains visibility.** Two candidates, and they combine cleanly:
+
+- **Role hierarchy** covers the manager's *own direct and indirect reports* automatically. If
+  every rep in East reports up through the East Manager role, the hierarchy already grants the
+  manager their reports' Opportunities. No extra config needed.
+- **A sharing rule** covers everything else — Opportunities in the East territory that are owned
+  by someone *not* in the manager's subtree (a shared deal, or a rep who moved territories).
+  Criterion: \`Territory__c = 'East'\`, granting **Read** (or Read/Write if the manager should
+  be able to correct amounts).
+
+The honest answer is usually **both**: the hierarchy for the obvious case, the rule for the
+exceptions.
+
+**Manual/External sharing.** Enable it only if users **outside** the org need access — partner
+or portal users, or an external accountant. Internal staff already get subordinate access from
+the role hierarchy, so enabling it for them is an unnecessary grant. The implication is worth
+stating: Manual/External sharing is a deliberate widening of the org's trust boundary to
+non-org identities, so treat enabling it as a security decision, not a checkbox.
+
+**The Account-but-not-Opportunities check.** Look at the OWD on **Opportunity**. If it is set to
+**Controlled by Parent**, then anyone who cannot see the Account also cannot see its
+Opportunities — which produces exactly that symptom. Switching Opportunity to Private (or
+adding a sharing rule) resolves it.
+  `,
+
+  '2.3': `
+A complete design for Brightline. Your own is acceptable if the reasoning is sound — compare
+the decisions, not the wording.
+
+### 1. Role hierarchy
+
+\`\`\`
+CEO
+├── VP Sales
+│   ├── East Regional Manager
+│   │   ├── East Rep 1
+│   │   └── East Rep 2
+│   ├── Central Regional Manager
+│   │   ├── Central Rep 1
+│   │   └── Central Rep 2
+│   └── West Regional Manager
+│       ├── West Rep 1
+│       └── West Rep 2
+└── VP Operations
+    └── Inside Sales Lead
+        └── Inside Sales 1..n
+\`\`\`
+
+**Who sees whom:** each Regional Manager sees their own reps' records; the VP Sales sees all
+three managers' (and therefore all reps'); the CEO sees everything. Visibility flows **upward
+only**, so an East Rep never sees their manager's or another rep's records through the hierarchy.
+The Inside Sales staff sit outside the rep chain deliberately — they need deal visibility, which
+comes from a sharing rule, not from the tree.
+
+### 2. OWD choices
+
+| Object | OWD | Why |
+|--------|-----|-----|
+| Opportunity | **Private** | Amount, discount and competitor data are sensitive. Tightest baseline; widened by territory rules. |
+| Quote_Request__c | **Private** | A quote in progress is competitively sensitive and is being negotiated. |
+| Contract | **Private** | Signed agreements carry legal and pricing detail. |
+
+All three Private is consistent: Brightline widens access deliberately per role rather than
+relying on a permissive baseline.
+
+### 3. Sharing rules
+
+| # | Object | Target | Criteria | Access |
+|---|--------|--------|----------|--------|
+| 1 | Opportunity | East/Central/West Regional Managers | \`Territory__c\` = their territory | Read/Write |
+| 2 | Opportunity | Inside Sales | \`Is__c\` is true (e.g. isInsideSales) | Read only |
+| 3 | Opportunity | Inside Sales Lead | \`Territory__c\` != blank | Read only |
+| 4 | Quote_Request__c | Inside Sales | \`Status__c\` = 'Submitted' | Read/Write, so they can work it |
+| 5 | Contract | Finance (permission set, all users) | — | Read only |
+
+Rule 3 deliberately gives the Inside Sales Lead territory-wide read without granting
+edit — leadership visibility without the ability to change a price.
+
+### 4. Manager access: hierarchy *or* rule?
+
+**Both, for different jobs.** The **role hierarchy** handles reps who report to the manager,
+which is the majority of cases and costs nothing to maintain. The **sharing rule** handles
+exceptions: shared deals owned outside the manager's subtree, and reps who changed territory
+while a deal was still open. Relying on the hierarchy alone would silently drop those deals;
+relying on the rule alone would be a more complex version of the same answer.
+
+### 5. Permission sets vs profile
+
+**Profiles (the base job function, kept minimal):**
+- \`Sales Rep\` — Opportunity, Account, Contact, Quote_Request__c CRUD; tabs for the same.
+- \`Regional Manager\` — same as Sales Rep plus nothing extra yet (the hierarchy and rules do
+  the access work).
+- \`Inside Sales\` — Opportunity, Quote_Request__c CRUD with **no** Update on Opportunity amount.
+
+**Permission sets (all incremental access):**
+- \`Brightline_Deal_Editor\` — Update on Opportunity discount and competitor fields, for reps who
+  negotiate.
+- \`Brightline_Territory_Read_All\` — read all Opportunities, for the VP and ops staff.
+- \`Brightline_Contract_Reader\` — read on Contract for finance.
+- \`Brightline_Admin\` — full access, for the system administrator only.
+
+**Rule of thumb:** the profile says *what job this person does*; the permission set says *what
+they can additionally do*. Anything that only one role needs belongs in a permission set, so you
+never clone a profile to make a small change.
+
+### 6. Troubleshooting a rep who cannot see an Opportunity
+
+In order — this is the Phase 2 troubleshooting ladder applied to one symptom:
+
+1. **Can they see the Opportunities tab at all?** No → profile Object Permissions, then whether
+   the tab is in an app they can open. *Not the cause here — they can see their own deals.*
+2. **Can they open their own Opportunities?** Yes → object CRUD and FLS are fine. Skip to 3.
+3. **Who owns the record?** If it is owned by someone in their own territory but outside their
+   reporting line, the **role hierarchy** will not have covered it — check whether
+   sharing rule 1 is actually active and matching. Territory is the criterion, so verify the
+   record's \`Territory__c\` is populated; a blank territory matches no rule and the record stays
+   invisible.
+4. **Does the rule grant the right access?** The rule may grant **Read** when the rep needs
+   **Read/Write** to edit the amount.
+5. **Is field FLS hiding a specific column?** Only if the record opens but one field is missing —
+   a different symptom from "cannot open".
+
+**Most likely root cause in practice:** \`Territory__c\` is empty on the record, so the sharing
+rule does not match. This is the common real-world failure, and it is why Phase 4 makes that
+field **required**.
+`,
+
+  /* ------------------------------------------------------------------ phase 3 */
+  '3.1': `
+Read each request as a **question shape**, not a field list. The type follows from the shape.
+
+**A — "How many open Opportunities, and what is their total value?"**
+**Summary.** One row of totals across everything: measure *Count* of records plus *SUM* of Amount.
+No grouping at all — grouping would break the single total the request asks for. Filters: Stage
+not equal to Closed Won and Closed Lost.
+
+**B — "Every Opportunity over 50,000 with account name, owner, close date and stage."**
+**Detail** or **Tabular**. This is the one genuinely arguable item. The request names the fields,
+which points to Tabular — and Tabular is the better answer because the field set is *fixed and
+known*, so you choose columns explicitly. Detail is the safe default only when you do not yet know
+which fields matter, because it inherits page-layout order. If the answer key wants one, take
+**Tabular** here and mention Detail as the alternative; note the filters: Amount greater than
+50000, Stage not equal to Closed Won / Closed Lost.
+
+**C — "Pipeline by territory, split by stage."**
+**Matrix.** Rows grouped by Territory, columns grouped by Stage, measure SUM of Amount. Matrix is
+the only type that groups on two axes at once. A summary report would need two separate reports,
+one per stage, which is not what was asked.
+
+**D — "Each Account, with all its open Opportunities underneath it."**
+**Joined, with Account as the primary object** and Opportunity as the related child. Then it reads
+"14 Accounts" with deals nested beneath each.
+
+**The primary-object point in D.** The report counts **primary** records. Account primary means the
+row count and totals are accounts — not opportunities. So:
+
+| Primary object | Row count means | Right when… |
+|----------------|-----------------|-------------|
+| Account | "14 accounts" | you want one row per customer (as asked) |
+| Opportunity | "37 opportunities" | you want one row per deal |
+| Contact | "2,400 contacts" | you expected the child count |
+
+If a stakeholder said "we have 2,400 contacts" and the report says 14, the answer is not a filter
+bug — it is the primary object. Joining three objects is fine (Account + Opportunities +
+Contacts); there is no two-child limit, so that distractor is never the cause.
+
+**E — "A fixed-width export I can hand to finance, exactly these nine columns in this order."**
+**Tabular, explicitly.** Two things in that request force it: the column **set** is named, and the
+column **order** is specified. Tabular is the only type that lets you choose and order fields, and
+it is the only type that formats sensibly for export and print. Detail would impose
+page-layout order and could not guarantee the nine columns.
+
+**The grouping rule that ties it together:** summary and matrix aggregate, detail/tabular/joined
+enumerate. "By territory" or "by stage" forces a grouping, which rules out tabular immediately.
+A, B and E have no grouping and are about individual records or single totals; C and the counting
+part of D are about aggregation.
+`,
+
+  '3.2': `
+The point of this exercise is that a **written specification** survives a new user and a new
+quarter in a way a clicked-together report does not.
+
+### Report 1 — "Open Pipeline by Territory" (VP audience)
+
+| Element | Choice | Why |
+|---------|--------|-----|
+| Type | **Summary** | One total per territory. Rows = Territory, so one aggregate per group. |
+| Primary object | Opportunity | Opportunities are what have value and pipeline. |
+| Filters | CloseDate = **THIS QUARTER**; Stage not equal to Closed Won; Stage not equal to Closed Lost | "Open" and "this quarter" both required |
+| Row grouping | Territory__c | |
+| Column grouping | none | If the VP also wants by stage, this becomes **Matrix** |
+| Measures | COUNT of records; SUM of Amount | Both — count alone hides a territory with 3 huge deals |
+| Date field | CloseDate | The quarter in question is the **close** quarter, not created or last-modified |
+
+**The date decision, explicitly.** I chose the relative range **THIS QUARTER** over an absolute
+start/end date. Rejected: hardcoding 1 Apr – 30 Jun, because it becomes wrong at 1 July and nobody
+notices until someone trusts the number. Relative ranges recalculate on each run. Second thing to
+state: if the VP wanted a trend rather than a snapshot, the row grouping would be the date field
+with **Quarter and Year both visible** — not "Calendar Quarter", which collapses all Q1s into one
+row.
+
+### Report 2 — "Deals Closed Last 90 Days" (rep's own review)
+
+| Element | Choice | Why |
+|---------|--------|-----|
+| Type | Summary, or **Detail** if the rep wants to see each deal | The request says "deals", so Detail is defensible; a count-and-total summary is also fine |
+| Primary object | Opportunity | |
+| Filters | CloseDate = **LAST 90 DAYS**; Stage = Closed Won; Owner = the running user | The rep reviews their own wins |
+| Grouping | none, or Stage if they want win/loss comparison | |
+| Measures | COUNT; SUM of Amount; optionally AVG Amount | Average win size is the useful coaching number |
+
+Relative again (**LAST 90 DAYS**, not literal dates), because a rolling window stays useful
+indefinitely while a fixed window does not.
+
+### Running user, per report
+
+**Report 1 (VP):** decide explicitly rather than by accident. Two defensible answers:
+
+- *Org-wide*, with **no** "My" filter, relying on the VP's sharing to show all three territories.
+  Best if the VP genuinely sees everything.
+- *Run-as* in a report folder set to a specific user (e.g. the CEO or the VP Sales role), so the
+  numbers are leadership's view regardless of who opens it.
+
+What is **wrong** is leaving an ambiguous "My" filter on it: it silently becomes "the VP's own
+deals" and the dashboard under-reports with no error message.
+
+**Report 2 (rep):** "My" here is **correct and intended** — each rep sees their own wins. Note the
+consequence to say out loud: the same dashboard shows three different totals to three reps, by
+design.
+
+### Zero rows for a legitimate user
+
+Four causes, and how to distinguish "no data" from "no access":
+
+| Cause | How to tell |
+|-------|-------------|
+| **Record sharing** — OWD Private, no sharing rule, so they cannot see the records at all | Run the report as an admin. If the admin sees rows and the user does not, it is access, not data. **This is the first thing to check.** |
+| Filters exclude everything | Remove filters one at a time until rows appear; note which one killed it |
+| Wrong date field | The deals exist but were created last quarter and close next quarter, so grouping or filtering on the wrong date hides them |
+| Field not visible / report runs before data exists | Confirm the record exists at all, then check whether the report's columns reference a field the running user cannot read |
+
+> The genuinely hard one to diagnose is the first: **an empty report with a filter applied is
+> indistinguishable from an empty report with no access** until you change either the running user
+> or the filters. Always test the running user first — it takes ten seconds and eliminates half
+> the possibilities.
+`,
+
+  '3.3': `
+A full reporting spec for Brightline. Compare decisions and reasoning, not wording.
+
+### The five reports
+
+**R1 — "Open Pipeline by Territory"** · Summary · Opportunity
+Filters: CloseDate = THIS QUARTER, Stage not Closed Won/Lost. Row grouping: Territory__c.
+Measures: COUNT, SUM Amount. Date field: CloseDate (the quarter being measured). Running user:
+org-wide, **no** "My" filter — it is a leadership number and "My" would silently show only the
+viewer's own pipeline.
+
+**R2 — "Pipeline by Stage and Month"** · **Matrix** · Opportunity
+Filters: CloseDate = THIS FISCAL YEAR, Stage not Closed Won/Lost. Rows: Stage. Columns: CloseDate
+grouped by **Month with Year visible**. Measures: COUNT and SUM Amount. This is the multi-axis
+breakdown, and it is where the date-field trap from lesson 2 earns its keep: "Calendar Month"
+would collapse April 2025 and April 2026 into one column. Running user: org-wide.
+
+**R3 — "Deals Missing Close Dates"** · **Tabular** · Opportunity
+Filters: CloseDate = blank, Stage not Closed Won/Lost. Columns chosen and ordered explicitly:
+Opportunity Name, Account Name, Amount, Stage, Owner, LastModifiedDate. No grouping — this is a
+worklist. Tabular because the column set is fixed and known, and because a rep works this list
+rather than reading a chart. Running user: **"My" is correct** — it is a personal hygiene list.
+
+**R4 — "Account Rollup with Open Deals"** · **Joined** · **Account primary**, Opportunity as
+related child
+Filters on the child: Stage not Closed Won/Lost. Shows each Account once with its open deals
+beneath. Measure: SUM Amount. Account is primary on purpose: leadership asks "how many customers do
+we have deals with", so accounts is the count that means something. Documenting the choice matters
+because flipping it to Opportunity changes the headline number from accounts to deals.
+Running user: org-wide.
+
+**R5 — "Monthly Revenue Trend"** · Summary · Opportunity
+Filters: Stage = Closed Won, CloseDate = LAST 12 MONTHS. Row grouping: CloseDate with
+**Month and Year levels visible** (not Calendar Month). Measure: SUM Amount, and AVG Amount as a
+second measure. Filters and group are both relative so the report keeps working forever.
+Running user: org-wide.
+
+### Manager dashboard vs rep dashboard
+
+The difference is not layout — it is **who the numbers belong to**.
+
+**Regional Manager dashboard**
+
+| Component | Report | Question it answers |
+|-----------|--------|---------------------|
+| Metric: total open pipeline | R1 filtered to their territory | How much is in play? |
+| Metric: deals needing a close date | R3 filtered to their territory | Where is the data quality risk? |
+| Chart: pipeline by stage | R2 filtered to their territory | Where is the pipeline shape? |
+| Gauge: quota attainment | R5 or a closed-won total vs quota | Are we on track? A gauge is legitimate here because there is a real target. |
+| Lightning component: top open opportunities | a leaderboard-style component | Which deals should I look at first? |
+
+Dashboard filter: **Territory** — so the manager can switch between regions while presenting. All
+five components' reports must have Territory available as a filter for this to work on every
+chart, which is worth checking (it is the usual cause of "the filter does nothing here").
+
+No "My" filter anywhere: a manager's dashboard showing the manager's own three deals is the
+classic Phase 3 failure.
+
+**Rep dashboard**
+
+| Component | Report | Question it answers |
+|-----------|--------|---------------------|
+| Metric: my open pipeline | R1, **"My"** | How much is mine? |
+| Metric: my deals missing close dates | R3, **"My"** | What am I neglecting? |
+| Metric: my wins, last 90 days | R2 or R5, **"My"** | Am I converting? |
+| Chart: my pipeline by stage | R2, **"My"** | What is my shape? |
+| Lightning component: my recent records | recent-items style component | Quick access |
+
+Five components, no gauge (a rep's quota attainment is better as a metric — a needle is slower to
+read and the number is what they act on), and **"My" is deliberate everywhere**.
+
+### Mobile decision
+
+**Neither dashboard works on mobile.** State that plainly rather than hedging:
+
+- The manager dashboard would need rebuilding. Options: (a) accept desktop-only for leadership and
+  design the **mobile Opportunity record page** to carry the key metrics as a highlight panel;
+  (b) build equivalent **Lightning pages** (Phase 13) that surface the same numbers and *do*
+  work in mobile browser.
+- The rep dashboard is a better candidate for (a) — a rep in the field mostly needs *their own*
+  deals, which a mobile record page plus a mobile list view can deliver without a dashboard.
+
+Either way, no report may hardcode dates or owner names, because the moment a rep filters by
+"this month" on mobile and the report was frozen in March, the number is wrong and nobody can tell.
+
+### Empty-report triage note (three causes, in order)
+
+1. **Record access.** Run it as an admin. Admin sees rows, user sees none → sharing, not data.
+2. **Filters.** Drop filters one at a time; note which one empties the report. Check the date field
+   chosen is the one the business means (created vs close).
+3. **Running user.** Is a "My" filter doing more than intended? Is a report folder forcing a
+   different user than the viewer expects?
+
+**Success criterion met** if no report hardcodes a date or a user, if each dashboard component has
+a written question, and if the mobile answer is a decision rather than "we will cross that
+bridge".
+`,
+
+  /* ------------------------------------------------------------------ phase 4 */
+  '4.1': `
+The test in one line: **own records, own lifecycle, own reporting → object. Otherwise → field.**
+
+**R1 — Warranty Expiry date on every signed Contract → FIELD on Contract.**
+It is one attribute of a record type that already exists. Contract already has a tab, standard
+reporting and its own sharing, so a custom field puts the data in the right place with zero new
+configuration. A \`Warranty__c\` object would give you a tab, a sharing model and a report for one
+date field — cost without benefit.
+
+**R2 — Quote requests with lines and a Draft → Submitted → Approved → Expired lifecycle →
+CUSTOM OBJECT**, \`Quote_Request__c\`, with a child \`Quote_Line__c\`.
+
+All three object tests pass: its own records (each customer request), its own lifecycle (the status
+flow), its own reporting ("show me all expired quote requests"). The **lines force a child object**
+too — you cannot put three line items in three fields of the parent; one parent with many repeating
+children means one record per line.
+
+**Relationship: master-detail, from \`Quote_Request__c\` to \`Quote_Line__c\`.** Master-detail because
+a line is meaningless without its request: it should not exist orphaned, and its ownership should
+roll up. Master-detail is also what unlocks roll-up summary fields on the parent (Phase 7), so
+"total quoted value per request" becomes declarative.
+
+**R3 — Territory on each Opportunity → FIELD.** One attribute of an existing record.
+
+This one is deliberately arguable, and both answers are correct **if the reasoning is sound**:
+
+- **Picklist** (East / Central / West) if territory is purely a label on the opportunity. Lighter,
+  no extra object, no sharing model.
+- **Lookup to \`Territory__c\`** if territories are real things you need to own, report on, and
+  attach things to — a territory manager, "value by region" reporting, territory layouts.
+
+The test: *will someone ever need to own this, report on it, or attach something to it?* For a
+plain label, no — picklist.
+
+Worth noting: the Phase 2 sharing rules filtered on \`Territory__c\` work with **either**, because a
+sharing rule criterion filters on a picklist just as well as a lookup. The sharing design does not
+force the decision.
+
+**R4 — "Let each user personalise app navigation and which objects appear on their home page" →
+NEITHER. Use config.**
+
+This is precisely what Salesforce already provides: **app navigation** is per-user by default (users
+add, remove and reorder items in their own navigation without you building anything), and
+**Personalization Types** controls what related lists and layouts a user sees.
+
+Modelling it as a custom object — say \`Navigation_Preference__c\` per user — would mean building
+declarative configuration *about* declarative configuration, and the platform's own config would
+still win. **This is the "NEITHER" case the exercise is testing**: recognising when the requirement
+is already solved by platform behaviour.
+
+**R5 — Discounts above 30%, each needing its own approval, approver and decision history →
+CUSTOM OBJECT**, \`Discount_Request__c\`.
+
+It has its own records (each request), its own lifecycle (submitted → approved/rejected), and its
+own reporting ("all discounts above 30% granted last quarter"). It cannot be a field, because a
+field cannot hold an approval decision, an approver and a history — only a value.
+
+**Relationship: LOOKUP to Opportunity.** The deliberate call, and worth explaining:
+
+- **Not master-detail**, because a master-detail child rolls field ownership up and ties its
+  existence and delete behaviour to the parent. A *pending* discount approval should not be affected
+  by, or affect, the Opportunity's ownership — and you certainly do not want deleting an Opportunity
+  to silently delete the audit trail of an approval decision.
+- A **lookup** keeps them independent: the request references the deal, survives independently, and
+  can exist for a deal that later closes.
+
+**Summary table**
+
+| Requirement | Decision | The deciding reason |
+|-------------|----------|---------------------|
+| R1 Warranty Expiry on Contract | Field | one attribute, the record already exists |
+| R2 Quote requests + lines | Custom object + child object, master-detail | own lifecycle; lines need own records; lines meaningless without a parent |
+| R3 Territory on Opportunity | Field (picklist or lookup) | one attribute; both filter fine in sharing rules |
+| R4 User personalisation | **Neither** — app navigation + Personalization Types | platform config already does it |
+| R5 Discount approvals | Custom object, lookup to Opportunity | own approval lifecycle and history; lookup keeps approval independent of the deal |
+
+> The R4 case is the one to remember. "Build a custom object" is the wrong instinct when the
+> platform already provides the capability — and exam questions test exactly that judgement.
+`,
+
+  '4.2': `
+A schema with the reasoning attached. Yours can differ where the reasoning holds.
+
+### The four fields
+
+| Label | API name | Type | Required | Unique | Why |
+|-------|----------|------|----------|--------|-----|
+| Sales Territory | \`Territory__c\` | picklist **or** lookup to \`Territory__c\` | **Yes** | No | one attribute; see the test below |
+| Discount % | \`Discount_Percent__c\` | **Percent** | No | No | Percent, not Currency — see below |
+| Primary Competitor | \`Primary_Competitor__c\` | Text | No | No | a name, not an entity needing ownership |
+| Expected Close Date | \`Expected_Close_Date__c\` | Date | No | No | a single date, no time component needed |
+
+### Territory: picklist or lookup
+
+I applied the test from lesson 2: *will someone ever need to own this, report on it, or attach
+something to it?*
+
+- **Lookup to \`Territory__c\`** if Brightline has a territory manager, wants "value by region"
+  reporting that joins to territory metadata, or wants a territory-owned page layout.
+- **Picklist (East/Central/West)** if territory is purely a label.
+
+**My answer: lookup**, because Phase 2 built sharing rules keyed on territory and a Regional Manager
+already owns territory in the role tree — owning territory is a real concept here, so the "own it"
+half of the test is true.
+
+**The important point for the exam: both work for the Phase 2 sharing rules.** A sharing rule
+criterion filters on a picklist exactly as it does on a lookup. So do not justify the choice by
+"sharing rules need it" — that argument is wrong. Justify it by whether territory is a *thing you
+own and report on*, or a *label on an opportunity*.
+
+### Percent, not Currency — and why it matters forward
+
+\`Discount_Percent__c\` is **Percent**, and that choice pre-empts the whole Phase 6 trap:
+
+- Currency, Text Area and Rich Text **cannot be referenced directly in a formula**.
+- Had this been a Currency field, a formula totalling discounted value would have failed, and the
+  fix is an extra hidden **Number** formula field converting the currency first, then referencing
+  that helper.
+
+Choosing Percent from the start removes a field and a failure mode. **Pick the field type that will
+still be usable in Phase 6.**
+
+### If "Expected Close Date" really means "the quote was sent"
+
+Then it is not a close date and the label is a lie that will propagate into every report and every
+user's understanding. The fix is cheap **now** and expensive later:
+
+1. Rename it \`Quote_Sent_Date__c\` with label "Quote Sent Date".
+2. Leave real close-date handling on the standard \`CloseDate\` — it already exists (Phase 1's lesson
+   about extending rather than duplicating).
+
+This is free today because the API name has never been referenced by a formula, flow or report.
+After Phase 6 and 7, renaming means creating a new field and migrating data.
+
+### What breaks on an API-name rename
+
+Renaming \`Discount_Percent__c\` breaks every declarative reference to it:
+
+- **Formulas** referencing it → error on load.
+- **Validation rules** using it in the rule expression.
+- **Flows** whose decisions or assignments reference it.
+- **Reports** and **dashboards** — columns built on that API name.
+- **Permission sets** granting field-level access.
+- **Apex** classes, though this academy avoids those.
+
+**Renaming the label breaks nothing** — labels are presentation, resolved at display time, so every
+formula, flow, report and permission set keeps working.
+
+This is why the API name is a **contract** and the label is a **label**. Salesforce does not support
+renaming an API name in place precisely because of that blast radius.
+
+### The schema decisions, summarised
+
+| Decision | Reasoning one-liner |
+|----------|---------------------|
+| Territory = lookup | Brightline owns territories (Phase 2 managers), so "own it" is true |
+| Discount = Percent | avoids the Currency-in-formula limitation entirely (Phase 6) |
+| Competitor = Text | a name; no owner, no reports of its own |
+| Rename the date field now | free while unreferenced; expensive after automation exists |
+`,
+
+  '4.3': `
+A complete data model for Brightline. Compare the reasoning, not the names.
+
+### 1. The five custom objects
+
+| # | Plural / singular | API name | Record name | Why an object, not a field |
+|---|-------------------|----------|-------------|---------------------------|
+| 1 | **Quote Requests / Quote Request** | \`Quote_Request__c\` | Auto Number (QR-0001) | Own records, own lifecycle (Draft→Submitted→Approved→Expired→Converted), own reporting ("all expired quotes") |
+| 2 | **Quote Lines / Quote Line** | \`Quote_Line__c\` | Auto Number | Repeating lines under one request — cannot be fields on the parent |
+| 3 | **Discount Requests / Discount Request** | \`Discount_Request__c\` | Auto Number (DR-0001) | Own approval lifecycle, approver and decision history |
+| 4 | **Territories / Territory** | \`Territory__c\` | Text | Owned by Regional Managers, joined in Phase 3 reporting, has its own layout rules |
+| 5 | **Product Kits / Product Kit** | \`Product_Kit__c\` | Auto Number + Text | A bundle of standard Products with its own records — genuinely different from Product |
+
+*Why 5 is defensible:* a kit is not an attribute of a Product — it is a **set** of Products that
+needs its own record, its own price and its own roll-up of contents. It also demonstrates a
+master-detail (kit → kit line → standard Product lookup).
+
+### 2. Key fields per object
+
+**Quote_Request__c**
+
+| Label | API name | Type | Req | Unique | Why this type |
+|-------|----------|------|-----|--------|---------------|
+| Quote Number | auto | Auto Number | — | — | Record name; quotes are counted, not named |
+| Request Status | \`Request_Status__c\` | Picklist | Yes | No | Draft/Submitted/Approved/Expired/Converted — controlled list, not free text |
+| Customer | \`Account__c\` | Lookup → Account | Yes | No | Needs reporting and sharing on the Account |
+| Opportunity | \`Opportunity__c\` | Lookup → Opportunity | No | No | A quote can arrive before a deal exists |
+| Requested Date | \`Requested_Date__c\` | Date | Yes | No | |
+| Expiry Date | \`Expiry_Date__c\` | Date | No | No | |
+
+**Quote_Line__c** — master-detail child of Quote_Request__c
+
+| Label | API name | Type | Req | Unique | Why |
+|-------|----------|------|-----|--------|-----|
+| Line Number | \`Line_Number__c\` | Number | Yes | No | ordering |
+| Product | \`Product__c\` | Lookup → Product | Yes | No | real catalogue record, so it can roll up |
+| Quantity | \`Quantity__c\` | Number | Yes | No | 3 decimals for fractional units |
+| Unit Price | \`Unit_Price__c\` | Currency | Yes | No | **Currency** — right here, and Phase 6 explains why this needs a helper formula |
+| Line Total | \`Line_Total__c\` | Formula (Number) | — | — | Quantity × Unit Price; a formula cannot read Currency directly |
+
+**Discount_Request__c**
+
+| Label | API name | Type | Req | Unique | Why |
+|-------|----------|------|-----|--------|-----|
+| Request Number | auto | Auto Number | — | — | |
+| Opportunity | \`Opportunity__c\` | Lookup → Opportunity | Yes | No | **Lookup** — see relationship notes |
+| Requested Discount % | \`Requested_Discount__c\` | Percent | Yes | No | Percent avoids the formula limitation |
+| Decision | \`Decision__c\` | Picklist (Pending/Approved/Rejected) | Yes | No | Default "Pending"; **not** a checkbox |
+| Decision Date | \`Decision_Date__c\` | Date | No | No | set by the Phase 10 approval |
+
+**Territory__c**
+
+| Label | API name | Type | Req | Unique | Why |
+|-------|----------|------|-----|--------|-----|
+| Territory Name | auto (record name) | Text | — | Yes | |
+| Region Code | \`Region_Code__c\` | Text | Yes | **Yes** | the upsert key for integrations |
+| Manager | \`Territory_Manager__c\` | Lookup → User | No | No | Managers own territory |
+
+**Product_Kit__c** and \`Product_Kit_Line__c\` — kit header, master-detail to lines, each line a
+lookup to Product with Quantity and a Kit Price.
+
+### 3. Standard objects extended
+
+| Object | Field | API name | Type | Why |
+|--------|-------|----------|------|-----|
+| Lead | Product Interest | \`Product_Interest__c\` | Text Area | long free text, so Text Area not Text |
+| Account | Credit Terms | \`Credit_Terms__c\` | Picklist (Net 30/Net 60/On account) | controlled list; a label on the Account |
+| Account | External Ref | \`External_Ref__c\` | Text | **Unique + External ID** — the ERP key for upsert |
+| Contact | Buying Role | \`Buying_Role__c\` | Picklist (Decision maker/Champion/Influencer) | pure label, so picklist not lookup |
+| Opportunity | Sales Territory | \`Territory__c\` | Lookup → Territory | **directly reused by the Phase 2 sharing rules** |
+| Opportunity | Discount % | \`Discount_Percent__c\` | Percent | formula-friendly by design |
+| Product | Part Number | \`Part_Number__c\` | Text | **Unique** — a duplicate part number is a data-quality bug |
+
+### 4. Relationships, typed
+
+| From → To | Type | Why |
+|------------|------|-----|
+| Quote_Line__c → Quote_Request__c | **Master-detail** | a line cannot exist without its request; enables roll-ups |
+| Quote_Request__c → Account | **Lookup** | a quote must not be deleted when the account is |
+| Quote_Request__c → Opportunity | **Lookup** | optional; a quote may precede the deal |
+| Discount_Request__c → Opportunity | **Lookup** | the approval must survive the deal's state changes |
+| Product_Kit_Line__c → Product_Kit__c | **Master-detail** | lines have no meaning alone |
+| Product_Kit_Line__c → Product | **Lookup** | catalogue items are independent records |
+| Opportunity → Territory__c | **Lookup** | a deal should not delete territory; one territory, many opportunities |
+| Territory__c → User | **Lookup** | a user can manage multiple territories |
+
+**The principle, stated once:** master-detail when the child **cannot exist independently** and
+should roll ownership up and cascade deletes. Lookup when the records are genuinely independent
+and either can be deleted without taking the other.
+
+### 5. Required vs Unique + External ID
+
+**Required** (cannot be blank):
+
+- \`Quote_Request__c.Request_Status__c\` — a request with no status is invisible in every status report
+- \`Quote_Request__c.Account__c\` — the quote is meaningless without a customer
+- \`Quote_Line__c.Product__c\`, \`Quantity__c\`, \`Unit_Price__c\` — a line missing any of these cannot total
+- \`Discount_Request__c.Opportunity__c\`, \`Requested_Discount__c\`, \`Decision__c\`
+- \`Territory__c.Region_Code__c\`, \`Product__c.Part_Number__c\`
+
+**Unique + External ID** (the upsert keys):
+
+- \`Account__c.External_Ref__c\` **Unique + External ID** — the ERP account key. This is the field an
+  integration loads against, which is the entire reason for the External ID flag.
+- \`Territory__c.Region_Code__c\` **Unique** — reports group on it, and duplicate codes would split totals
+- \`Product__c.Part_Number__c\` **Unique** — two products sharing a part number is a data-quality bug
+
+**Deliberately NOT unique:** \`Discount_Request__c.Decision__c\` and any status field. Marking a status
+Unique would permit exactly one "Pending" row in the whole org.
+
+### 6. Deliberately not objects
+
+Three things I refused to model as custom objects:
+
+1. **User navigation preferences → not an object.** App navigation is already per-user and
+   Personalization Types covers related-list visibility. A \`Navigation_Preference__c\` would be
+   declarative configuration *about* declarative configuration, and the platform's own config would
+   still win.
+2. **Opportunity stage → not an object, not a custom picklist.** Standard \`StageName\` already handles
+   the sales process with forecasting, Einstein and probability. A custom "Deal Stage" object would
+   fight the standard field.
+3. **Per-line quote approval history → not an object.** A Phase 9 flow records status changes, or the
+   trail lives on the parent. Per-line approval records for something with two states is
+   over-modelling.
+
+Bonus refusals worth naming: **Warranty Expiry → field** on Contract (lesson 1), and **territory as
+a picklist → not needed** once \`Territory__c\` exists as an owned entity.
+
+### 7. Immutable API names
+
+Every API name here is effectively permanent, and three are load-bearing for other phases:
+
+- \`Opportunity__c.Territory__c\` — the Phase 2 sharing rules filter on it and the Phase 3 reports group
+  on it. Renaming breaks **sharing rules and reports simultaneously**, and a report that fails to
+  resolve a field fails quietly.
+- \`Quote_Line__c.Unit_Price__c\` — read by the Phase 6 helper formula and summed by the Phase 7 roll-up
+  on the parent. Renaming breaks both.
+- \`Discount_Request__c.Decision__c\` — referenced by the Phase 10 approval definition and the Phase 9
+  decision flow.
+
+**What breaks on a rename**, concretely: formulas, validation rules, flows, approval process
+definitions, reports and dashboards, sharing rule criteria, permission set FLS, and any Apex. The
+nastiest case is \`Territory__c\`, because a broken sharing rule fails **closed** — records quietly
+stop being shared rather than erroring, and you find out from a user complaint, not a log.
+
+> **The rule:** labels are free to change at any time. API names are chosen once, reviewed, then
+> treated as a contract. If you must change meaning, add a new field and migrate.
+`,
+
+  /* ------------------------------------------------------------------ phase 6 */
+  '6.1': `
+Read each one as **left operand, operator, function**. Every formula you write has those three
+parts, and naming them is most of the exam skill.
+
+### F1 — Line total, showing 0 rather than an error when Quantity is blank
+
+\`\`\`
+IF(ISPICKVAL(Quantity__c), Unit_Price__c * Quantity__c, 0)
+\`\`\`
+| Part | Value |
+|------|-------|
+| Left operand | \`Unit_Price__c\` and \`Quantity__c\` inside the function arguments |
+| Operator | \`*\` |
+| Function | \`IF()\` |
+
+**The blank risk:** a blank Quantity is a **null**, and null multiplied by a price is an *error*, not
+zero. **The guard:** \`ISPICKVAL()\` tests whether the field holds any value at all, so the arithmetic
+only runs when it is safe and the \`else\` returns 0.
+
+Note the second benefit: bare \`Unit_Price__c * Quantity__c\` would not even **save**, because a
+formula requires at least one function. The \`IF()\` solves both problems at once.
+
+### F2 — Account name + hyphen + Quote Number
+
+\`\`\`
+Account__c.Name & " - " & Quote_Request__c.Name
+\`\`\`
+**Operator:** \`&\` (concatenation). **Function:** none needed — \`&\` is an operator, not a function,
+and string joining with it is valid on its own.
+
+**The blank risk:** if the Account lookup is empty, \`Account__c.Name\` yields a null and the result
+is an error or a malformed label. **The guard:** if that matters, wrap it —
+\`IF(ISBLANK(Account__c), "No Account", Account__c.Name & " - " & Quote_Request__c.Name)\`.
+
+**The design point:** this reaches *one level up* the relationship to read \`Account__c.Name\`. That
+is allowed in a formula. Reaching a *set* of children is not (Phase 7).
+
+### F3 — Days open, or "Not started"
+
+\`\`\`
+IF(ISPICKVAL(Requested_Date__c), TODAY() - Requested_Date__c, "Not started")
+\`\`\`
+**Function:** \`IF()\`. **Operator:** \`-\`.
+
+**The blank risk:** subtracting a blank date from \`TODAY()\` gives a null or an error, so a request
+with no date would show an error instead of something meaningful.
+
+**The guard, and the interesting detail:** this \`IF()\` returns **two different types** — a Number
+when there is a date, and a Text string when there is not. That is permitted for a Text-returning
+formula, and it is a genuinely useful pattern: you can use a formula as a display field with a human
+fallback.
+
+### F4 — Priority by amount, three outcomes
+
+\`\`\`
+IF(Amount__c > 100000, "HIGH", IF(Amount__c > 25000, "MEDIUM", "LOW"))
+\`\`\`
+**The pattern:** the \`else\` argument of the outer \`IF()\` is *itself* an \`IF()\`. That is a **nested
+IF**, and it is how you get three or more outcomes with a function that only takes two branches.
+
+**Ordering matters:** the outermost test must be the **most selective**. If you tested 25,000 first,
+a 150,000 deal would match and return "MEDIUM". This is a classic exam trap and the single most
+common error in a three-tier formula.
+
+**The blank risk:** a blank amount. \`Amount__c > 100000\` on a null evaluates false, so the formula
+falls through to "LOW" — no error, but a **silently misleading** result. That is arguably worse than
+an error. A safer version tests for blank first:
+
+\`\`\`
+IF(ISBLANK(Amount__c), "UNSET",
+  IF(Amount__c > 100000, "HIGH", IF(Amount__c > 25000, "MEDIUM", "LOW")))
+\`\`\`
+
+### F5 — Expiry status, three outcomes
+
+\`\`\`
+IF(
+  NOT(ISPICKVAL(Expiry_Date__c)), "No date",
+  IF(
+    Expiry_Date__c < TODAY(), "Expired",
+    IF(Expiry_Date__c - TODAY() <= 30, "Expiring soon", "Active")
+  )
+)
+\`\`\`
+**The blank risk, and this is the important one:** \`TODAY() > Expiry_Date__c\` where
+\`Expiry_Date__c\` is blank does not behave the way you want. The comparison against a null is
+unreliable — depending on the field it can return true or produce an error, and either way a quote
+with no expiry date should say "No date", not "Expired".
+
+**The guard:** \`NOT(ISPICKVAL(...))\` tested **first**, so the blank case never reaches the
+comparisons. Order of tests in a nested IF is the whole game.
+
+### Summary table
+
+| Formula | Function | The blank risk | The guard |
+|---------|----------|----------------|-----------|
+| F1 | IF | null × price = error | ISPICKVAL |
+| F2 | none (\`&\`) | empty lookup → null name | ISBLANK on the lookup |
+| F3 | IF | blank date arithmetic | ISPICKVAL, plus a two-type return |
+| F4 | nested IF | blank amount → silently "LOW" | ISBLANK tested first |
+| F5 | triple-nested IF | blank expiry compares unreliably | NOT(ISPICKVAL) first |
+
+> Note F4 vs F5. F4's naive version *errors loudly* would be safer than it does; F5's naive version
+> could *lie*. Blank-handling is not only about preventing errors — it is about not showing a
+> confident wrong answer.
+`,
+
+  '6.2': `
+Diagnosis first, then the rewrite. Saying "add a blank check" without naming *what breaks* is not a
+diagnosis.
+
+### B1 — \`Unit_Price__c * Quantity__c\`
+
+**What goes wrong:** two things, and separating them matters.
+
+1. **It will not save.** A formula requires at least one function; bare arithmetic between two fields
+   is not valid.
+2. Even if it did save, a blank Quantity is a **null**, and null × price is a **formula error** on
+   every such record — which then poisons any report column built on it.
+
+**Fix:**
+\`\`\`
+IF(ISPICKVAL(Quantity__c), Unit_Price__c * Quantity__c, 0)
+\`\`\`
+**Function:** \`IF()\`. **Why that one:** it satisfies the mandatory-function rule *and* supplies the
+blank guard, so one construct fixes both problems.
+
+### B2 — \`IF(Quantity__c = 0, 0, Unit_Price__c * Quantity__c)\`
+
+**What goes wrong:** the guard tests the wrong thing. A blank Quantity is **null, not zero**, so
+\`Quantity__c = 0\` is **FALSE** for a blank field. The guard does not fire, the \`else\` branch runs,
+and you get the null error anyway.
+
+This is the subtlest defect in the set, because the formula *looks* correct and *does* handle a real
+zero correctly. It only fails on the case you were trying to protect against.
+
+**Fix:**
+\`\`\`
+IF(ISPICKVAL(Quantity__c), Unit_Price__c * Quantity__c, 0)
+\`\`\`
+**Why \`ISPICKVAL\`:** it asks "does this field hold any value?", which is TRUE for 0, TRUE for 42,
+and FALSE for blank. It is the correct test for "is this populated".
+
+### B3 — \`IF(StageName = "Closed Won", "Won", "Open")\`
+
+**What goes wrong:** comparing a **picklist** with \`=\` is unreliable, and comparing it to \`null\` is
+worse. Picklists need \`ISPICKVAL\`.
+
+**Fix:**
+\`\`\`
+IF(ISPICKVAL(StageName), IF(StageName = "Closed Won", "Won", "Open"), "No stage")
+\`\`\`
+or, more simply:
+\`\`\`
+IF(ISBLANK(StageName), "No stage", IF(StageName = "Closed Won", "Won", "Open"))
+\`\`\`
+**Why:** the blank test is done first, so the string comparison only ever runs against a populated
+picklist.
+
+### B4 — \`StageName & " - " & Amount\`
+
+**What goes wrong:** two independent defects.
+
+1. **Amount is Currency** and cannot be referenced directly in a formula — this is the Phase 4 /
+   Phase 6 type restriction.
+2. \`&\` joins exactly **two** operands. Here \`StageName & " - "\` produces one value, and appending
+   \`Amount\` as a third is not valid \`&\` usage. Use \`CONCAT()\` for three or more.
+
+**Fix:** add the helper field from Phase 4, then use \`CONCAT\`:
+\`\`\`
+// Step 1 — helper, type NUMBER:
+IF(ISPICKVAL(Amount__c), Amount__c, 0)
+
+// Step 2 — the real formula:
+CONCAT(StageName, " - ", TEXT(Amount__c))
+\`\`\`
+**Functions:** \`CONCAT()\` for many operands, \`TEXT()\` to render the number for display.
+
+### B5 — \`IF(TODAY() > Expiry_Date__c, "Expired", "Active")\`
+
+**What goes wrong:** when \`Expiry_Date__c\` is blank, the comparison against \`TODAY()\` is
+unreliable — and a quote with **no expiry date** should not be labelled "Expired".
+
+**Fix:**
+\`\`\`
+IF(
+  NOT(ISPICKVAL(Expiry_Date__c)), "No expiry date",
+  IF(Expiry_Date__c < TODAY(), "Expired", "Active")
+)
+\`\`\`
+**Why \`NOT(ISPICKVAL())\` first:** it short-circuits the blank case before any comparison runs.
+
+### B6 — \`TEXT(Today() - Requested_Date__c) + " days open"\`
+
+**What goes wrong:** two mistakes.
+
+1. \`TEXT()\` is **unnecessary** — \`TODAY() - Requested_Date__c\` already yields a Number.
+2. \`+\` does **not** concatenate text. \`+\` is arithmetic; adding a Number and a Text string does not
+   produce a readable label.
+
+**Fix:**
+\`\`\`
+CONCAT(TEXT(TODAY() - Requested_Date__c), " days open")
+\`\`\`
+or with \`&\`:
+\`\`\`
+TEXT(TODAY() - Requested_Date__c) & " days open"
+\`\`\`
+(\`&\` still works here because after \`TEXT()\` there are only two operands to join — but the date
+must be wrapped in \`ISPICKVAL\` first, or a blank date errors.)
+
+**Function:** \`TEXT()\` to convert the number to text, then \`&\` or \`CONCAT()\` to join.
+
+### Summary of the six defects
+
+| # | Defect category | The lesson |
+|---|-----------------|------------|
+| B1 | no function; unguarded arithmetic | a formula needs a function *and* a guard |
+| B2 | blank ≠ zero | \`= 0\` does not test for empty |
+| B3 | picklist comparison | use \`ISPICKVAL\`/\`ISBLANK\` first |
+| B4 | Currency type; \`&\` arity | helper field + \`CONCAT\` |
+| B5 | blank in a comparison | guard first, branch second |
+| B6 | unnecessary \`TEXT\`; \`+\` is not concatenation | check types, and pick the right operator |
+
+> Every one of these is a **type or blank** problem. That is the whole formula exam: not syntax,
+> not arithmetic, but what happens when a field holds the wrong type of value or nothing at all.
+`,
+
+  '6.3': `
+Nine formulas, plus one deliberate non-formula. All declarative.
+
+### The nine formula fields
+
+**On \`Quote_Line__c\`**
+
+| # | Label / API name | Type | Formula |
+|---|-----------------|------|---------|
+| 1 | Price as Number · \`Price_As_Number__c\` | Number | \`IF(ISPICKVAL(Unit_Price__c), Unit_Price__c, 0)\` |
+| 2 | Line Total · \`Line_Total__c\` | Number | \`IF(ISPICKVAL(Quantity__c), Price_As_Number__c * Quantity__c, 0)\` |
+| 3 | Line Status · \`Line_Status__c\` | Text | \`IF(NOT(ISPICKVAL(Quantity__c)), "Incomplete", IF(Line_Total__c > 10000, "High value", "Standard"))\` |
+
+Note **field 1 references nothing but the Currency field**, which is precisely what makes the
+workaround legal. And **field 2 references field 1**, which is why 1 must be created *before* 2 —
+the Phase 6 creation-order rule made concrete.
+
+**On \`Quote_Request__c\`**
+
+| # | Label / API name | Type | Formula |
+|---|-----------------|------|---------|
+| 4 | Days Open · \`Days_Open__c\` | Number | \`IF(ISPICKVAL(Requested_Date__c), TODAY() - Requested_Date__c, 0)\` |
+| 5 | Expiry Status · \`Expiry_Status__c\` | Text | \`IF(NOT(ISPICKVAL(Expiry_Date__c)), "No expiry", IF(Expiry_Date__c < TODAY(), "Expired", IF(Expiry_Date__c - TODAY() <= 30, "Expiring soon", "Active")))\` |
+| 6 | Is Overdue · \`Is_Overdue__c\` | Checkbox | \`AND(ISPICKVAL(Expiry_Date__c), Expiry_Date__c < TODAY())\` |
+| 7 | Is Overdue Label · \`Is_Overdue_Label__c\` | Text | \`IF(Is_Overdue__c, "OVERDUE", IF(ISPICKVAL(Requested_Date__c) && TODAY() - Requested_Date__c > 14, "AWAITING REPLY", "OK"))\` |
+
+**On Opportunity**
+
+| # | Label / API name | Type | Formula |
+|---|-----------------|------|---------|
+| 8 | Discounted Amount · \`Discounted_Amount__c\` | Currency | \`IF(ISBLANK(Amount__c), 0, Amount__c - Amount__c * Discount_Percent__c / 100)\` |
+| 9 | Priority · \`Priority__c\` | Text | \`IF(ISBLANK(Amount__c), "UNSET", IF(Amount__c > 100000, "HIGH", IF(Amount__c > 25000, "MEDIUM", "LOW")))\` |
+
+Fields 6 and 7 demonstrate that **a checkbox formula can be referenced by a text formula**, which is
+a legitimate reason to have both rather than duplicating the condition.
+
+### The three blank-safe guards, and why those three
+
+| Field | Guard used | Why that one |
+|-------|-----------|--------------|
+| 1, 2 | \`ISPICKVAL()\` | Currency and Number fields; \`ISPICKVAL\` answers "is this populated at all?" and correctly returns TRUE for a real 0 |
+| 5 | \`NOT(ISPICKVAL())\` **tested first** | A blank expiry date compared against \`TODAY()\` is unreliable, and "No expiry" must not be labelled "Expired" |
+| 9 | \`ISBLANK()\` **tested first** | A blank Amount falls through both comparisons to "LOW" — no error, but a **confidently wrong** answer. The guard prevents the lie. |
+
+The distinction worth marking: **Currency/Number fields → \`ISPICKVAL\`; Text fields → \`ISBLANK\`**,
+and the habit of testing the blank case *before* any comparison rather than after.
+
+### The helper-field workaround, in full
+
+Field 2 depends on field 1, and the pattern is worth writing out:
+
+1. **\`Price_As_Number__c\`**, return type **Number**, formula
+   \`IF(ISPICKVAL(Unit_Price__c), Unit_Price__c, 0)\`.
+   Salesforce permits a Currency field here because this is the documented conversion pattern — a
+   Number-typed formula reading Currency — and it produces a value a formula can then use.
+2. **\`Line_Total__c\`** references \`Price_As_Number__c\` instead of \`Unit_Price__c\`.
+
+**Creation order matters:** 1 must exist before 2, or \`Line_Total__c\` fails to save with an
+unresolved field reference. If it already failed once, delete and recreate it so it is reprocessed
+after the helper.
+
+**The alternative worth mentioning:** a **roll-up summary** of Currency children returns a usable
+value without a helper, so if \`Unit_Price__c\` were being aggregated rather than read on its own
+record, the roll-up would sidestep the problem entirely.
+
+### The nested IF
+
+Field **5** (\`Expiry_Status__c\`) is the requirement: **four** outcomes, so three levels of nesting —
+\`No expiry\` → \`Expired\` → \`Expiring soon\` → \`Active\`.
+
+Two things make it correct:
+- The blank test is **first**, so the unreliable comparison never runs against a null.
+- \`Expiring soon\` uses \`Expiry_Date__c - TODAY() <= 30\` rather than a second \`<\` test, because
+  the expiry has already been established as not-past. This is easier to reason about than nesting
+  \`NOT(...)\` twice.
+
+Field **9** is a three-outcome nested IF, with the **most selective test outermost** — testing 25,000
+first would catch 150,000 and return "MEDIUM". That ordering is the classic trap in this question
+shape.
+
+### The one requirement deliberately NOT built as a formula
+
+> **"Total quoted value for this quote request."**
+
+**Built as a roll-up summary (Phase 7), not a formula.**
+
+A formula works on fields of its own record plus one level of related record references. It **cannot
+aggregate across a set of child records** — and a quote request has an unknown number of lines. The
+capability required is aggregation over children, which is precisely what a roll-up summary exists
+for.
+
+Secondary reason: \`Unit_Price__c\` is Currency on the children, and Currency cannot be read in a
+formula at all, so even a hypothetical cross-record sum would hit the type restriction.
+
+**The division of labour, stated cleanly:**
+
+| Need | Tool |
+|------|------|
+| Derive a value from fields on **this** record | Formula |
+| Aggregate values across **child** records | Roll-up summary |
+| React to a change on **another** record | Record-triggered flow (Phase 9) |
+
+### Where a blank could still break each formula
+
+| Field | Residual risk | Safe because |
+|-------|---------------|--------------|
+| 1 | none | \`ISPICKVAL\` guards; returns 0 |
+| 2 | Quantity blank | \`ISPICKVAL\` guard; returns 0 |
+| 3 | Quantity blank | tested first; returns "Incomplete" |
+| 4 | Requested Date blank | \`ISPICKVAL\` guard; returns 0, not an error |
+| 5 | Expiry Date blank | tested first; returns "No expiry" |
+| 6 | Expiry Date blank | \`AND\` short-circuits on a FALSE \`ISPICKVAL\` |
+| 7 | Requested Date blank | \`&&\` short-circuits before the subtraction |
+| 8 | Amount blank | \`ISBLANK\` tested first; returns 0. \`Discount_Percent__c\` blank is safe because a null discount multiplies to nothing, so the result is the full Amount — arguably correct |
+| 9 | Amount blank | \`ISBLANK\` first; returns "UNSET" rather than a wrong "LOW" |
+
+Fields 6 and 7 rely on \`AND\`/\`&&\` **short-circuiting**, which is a real behaviour worth naming
+explicitly rather than assuming.
+
+### Three formulas that break on a rename
+
+| Formula | Referenced field | What breaks |
+|---------|-----------------|-------------|
+| \`Line_Total__c\` | \`Price_As_Number__c\` (its helper) | The formula fails to resolve and the whole field returns an error — and since it is the basis of every line total, the impact cascades |
+| \`Is_Overdue_Label__c\` | \`Is_Overdue__c\` | Formula-to-formula references break the same way, so this is the same class of dependency as the helper field |
+| \`Discounted_Amount__c\` | \`Discount_Percent__c\` | Any discount rule written in Phase 5 or Phase 7 against the same field breaks simultaneously |
+
+**Why:** a formula stores a reference to the API name. Rename the field and the reference no longer
+resolves; the formula fails to load and the field shows an error on every record. For the *helper
+field* case the blast radius is worse than it looks, because one renamed field breaks two formulas
+and every report column derived from them.
+
+> Which is why the naming rule from Phase 4 applies with extra force to formula-referenced fields:
+> those API names are not just contracts, they are **load-bearing dependencies in a chain**.
+`,
+
+  /* ------------------------------------------------------------------ phase 5 */
+  '5.1': `
+State the choice **and** its consequences — the exam marks are mostly on the consequences.
+
+### The four pairs
+
+**Pair 1 — \`Quote_Line__c\` belongs to \`Quote_Request__c\`, cannot exist alone → MASTER-DETAIL.**
+
+"Cannot exist without" is the textbook test. Beyond correctness, master-detail is what makes
+"total quoted value per request" possible as a roll-up summary (Phase 7), and it guarantees a line
+belongs to exactly one request, so the aggregation is well-defined.
+
+**Pair 2 — \`Discount_Request__c\` references the Opportunity it affects, and a pending approval must
+survive that Opportunity closing → LOOKUP.**
+
+The phrase "must survive independently" is the lookup test. Master-detail would tie the approval's
+existence to the deal: deleting the Opportunity would delete the approval, destroying the audit
+trail of a decision. It would also roll ownership up, so the approval could not be owned by an
+approver distinct from the deal owner — which defeats the purpose of a separate approval object.
+
+**Pair 3 — Contact belongs to an Account; deleting the Account should not leave contacts →
+MASTER-DETAIL.**
+
+This is the standard configuration, and "orphan contacts are meaningless" is the reason. A contact
+with no account cannot be reached, reported on meaningfully, or shared sensibly. Note the nuance: the
+requirement as written ("should not leave contacts behind") is satisfied by master-detail because
+master-detail *deletes the children too*. Master-detail both prevents orphans **and** removes the
+dangling records.
+
+**Pair 4 — \`Product_Kit_Line__c\` names a catalogue \`Product\`, and deleting the kit should leave the
+Product in the catalogue → LOOKUP (line → Product).**
+
+**This pair needs two relationships, in opposite directions**, and saying only one is an incomplete
+answer:
+
+| From → To | Type | Why |
+|-----------|------|-----|
+| \`Product_Kit_Line__c\` → \`Product_Kit__c\` | **Master-detail** | a kit line has no meaning without its kit |
+| \`Product_Kit_Line__c\` → \`Product\` | **Lookup** | catalogue Products are independent records; deleting a kit must not delete a Product |
+
+### Consequences for Pair 3 (master-detail Contact → Account)
+
+| Aspect | What happens |
+|--------|--------------|
+| **Owner** | The Contact has **no independent owner**. It shows the Account's owner. You cannot put a different owner on it. |
+| **Sharing** | Access is controlled by the **Account's** sharing. If a user cannot see the Account, they cannot see its Contacts — even with Contact CRUD in a permission set. |
+| **Roll-ups** | Available. A roll-up on Account could SUM or COUNT the Contacts, and could even roll a Contact field up to the Account. |
+| **Delete** | Deleting the Account deletes its Contacts. |
+| **Grandparent roll-up** | If Account itself were a master-detail child, Contact ownership rolls all the way up the chain. |
+
+### Consequences for Pair 2 (lookup Discount_Request__c → Opportunity)
+
+- Deleting the Opportunity leaves every \`Discount_Request__c\` with a **blank lookup** — orphans that
+  still exist and still count in reports unless you filter them out.
+- To **prevent** that: a **validation rule** on \`Discount_Request__c\` blocking a blank
+  \`Opportunity__c\`, plus removing **Delete** on Opportunity from the relevant permission sets. Note
+  that removing Delete from a permission set is the more reliable of the two, because a validation
+  rule on the child cannot stop someone deleting the parent.
+- To **detect** it after the fact: a list view on \`Discount_Request__c\` filtered to
+  \`Opportunity__c = blank\`.
+
+### Orphan records for Pair 1: **do not enable them**
+
+An orphaned quote line is meaningless — it belongs to no request, cannot be totalled, and would be
+silently **excluded from the roll-up** while still existing as a record. That is the worst possible
+combination: the data is invisible to your totals but still sitting in the database looking fine.
+
+If orphan records were enabled, you would also have to accept that "total quoted value" is wrong by
+an unknown amount, with no error to tell you.
+
+**Summary of the choices**
+
+| Pair | Choice | Deciding phrase |
+|------|--------|-----------------|
+| 1 Line → Quote Request | Master-detail | "cannot exist without" + needs the roll-up |
+| 2 Discount Request → Opportunity | Lookup | "must survive independently" |
+| 3 Contact → Account | Master-detail | orphans are meaningless; children delete with parent |
+| 4 Kit Line → Product | Lookup | catalogue items are independent |
+| 4 Kit Line → Kit | Master-detail | a line has no meaning alone |
+`,
+
+  '5.2': `
+Written rules, because "use validation rules" is not an answer.
+
+### Rule 1 — No lines on an Expired quote
+
+\`\`\`
+Quote_Request__c.Request_Status__c = "Expired"
+\`\`\`
+Error: *"Cannot add or save lines on an Expired quote request. Submit a new request."*
+
+This is a **cross-object rule**: it lives on \`Quote_Line__c\` and reaches up to the parent. Works on
+a master-detail relationship; works equally well on a lookup if one existed — the traversal is what
+matters, not the relationship type.
+
+### Rule 2 — A Submitted quote must have at least one line
+
+\`\`\`
+AND(
+  Quote_Request__c.Request_Status__c = "Submitted",
+  COUNT() = 0
+)
+\`\`\`
+Hmm — precisely: the condition needs the child count. Because roll-ups and \`COUNT()\` over children
+only work on **master-detail**, **this rule is only expressible because of the master-detail choice
+from Exercise 5.1**. That is the connection the exercise is testing: the relationship type you chose
+in Phase 5 determines which integrity rules you can write at all.
+
+Error: *"A quote request cannot be Submitted without at least one line."*
+
+### Rule 3 — No discount request against a Closed Lost opportunity
+
+\`\`\`
+AND(
+  NOT(ISNULL(Opportunity__c)),
+  Opportunity__c.StageName = "Closed Lost"
+)
+\`\`\`
+Error: *"A discount cannot be requested against a Closed Lost opportunity."*
+
+The \`ISNULL()\` guard matters and is worth calling out: without it, a *new* discount request with no
+opportunity selected would have a blank lookup, and comparing a blank reference to a text value can
+behave unexpectedly. Guard first, then compare.
+
+### Rule 4 — Quantity within range
+
+\`\`\`
+OR(
+  Quantity__c <= 0,
+  Quantity__c > 10000
+)
+\`\`\`
+Error: *"Quantity must be between 0 and 10,000."*
+
+Note the boundary: this rejects 0 and negatives on the low side, and anything above 10,000. If the
+business rule is "at least 1", the condition becomes \`Quantity__c < 1\` — small but exam-relevant.
+
+### The lookup filter decisions
+
+| Rule | Lookup filter helps? | Still required? |
+|------|----------------------|----------------|
+| 1 Expired parent | No — nothing to select differently | **Yes** |
+| 2 Submitted needs lines | No | **Yes** |
+| 3 Closed Lost | **Yes** — filter the Opportunity lookup to exclude Closed Lost deals | **Yes, despite the filter** |
+| 4 Quantity range | No — a number field, nothing to select | **Yes** |
+
+**Rule 3 is the instructive one.** A lookup filter that excludes Closed Lost opportunities gives a
+much better experience — the rep never sees the dead deal in the picker. But the filter governs only
+**interactive selection**. A Phase 9 flow copying an Opportunity onto a discount request, a data
+import, or an API call would set the value without the picker ever being involved. So the filter is
+**UX**, the validation rule is the **guarantee**, and you want both.
+
+> The general rule: a lookup filter stops *mistakes made by humans choosing from a list*. A
+> validation rule stops *bad data existing at all*. Different jobs, so both are justified.
+
+**Also worth stating:** the rules above live on \`Quote_Line__c\` and \`Discount_Request__c\`, and all
+four only fire when *that* record is saved. If a rep changes a quote to Expired after its lines exist,
+none of these rules run. That gap is real, and Phase 9 automation on the parent is the only
+declarative way to close it.
+`,
+
+  '5.3': `
+A complete integrity specification for Brightline. Every element is declarative — nothing here needs
+Apex.
+
+### 1-2. Five relationships with consequences
+
+| # | From → To | Type | Deciding reason | Ownership | Sharing | On parent delete | Roll-up? |
+|---|-----------|------|-----------------|-----------|---------|------------------|----------|
+| 1 | \`Quote_Line__c\` → \`Quote_Request__c\` | **Master-detail** | A line has no meaning without its request; needs the roll-up | Inherits the quote's owner | Inherits quote access | Lines are deleted with it | **Yes** |
+| 2 | \`Quote_Request__c\` → Account | **Lookup** | A quote must not vanish when the account is deleted | Own owner (inside sales) | Independent rules | Lookup goes blank | No |
+| 3 | \`Quote_Request__c\` → Opportunity | **Lookup** | A quote can arrive before a deal exists | Own owner | Independent rules | Lookup goes blank | No |
+| 4 | \`Discount_Request__c\` → Opportunity | **Lookup** | A pending approval must survive the deal's state changes | Own owner (the rep) | Independent rules | Lookup goes blank | No |
+| 5 | \`Product_Kit_Line__c\` → \`Product_Kit__c\` | **Master-detail** | A kit line has no meaning alone | Inherits the kit's owner | Inherits kit access | Lines are deleted with it | **Yes** |
+
+Bonus, and the sixth relationship: \`Product_Kit_Line__c\` → \`Product\` is a **lookup**, because
+catalogue items must survive kit deletion.
+
+### 3. Six validation rules
+
+**(a) No lines on an Expired quote** — on \`Quote_Line__c\`, cross-object
+\`\`\`
+Quote_Request__c.Request_Status__c = "Expired"
+\`\`\`
+*"Cannot add or save lines on an Expired quote request."*
+
+**(b) A Submitted quote needs at least one line** — on \`Quote_Request__c\`, cross-object
+\`\`\`
+AND(
+  Request_Status__c = "Submitted",
+  COUNT() = 0        // requires the master-detail children from relationship 1
+)
+\`\`\`
+*"A quote request cannot be Submitted without at least one line."*
+**This rule is only writable because relationship 1 is master-detail** — the cleanest illustration in
+the spec that the relationship choice determines which integrity rules exist.
+
+**(c) No discount request against a Closed Lost deal** — on \`Discount_Request__c\`, cross-object
+\`\`\`
+AND(NOT(ISNULL(Opportunity__c)), Opportunity__c.StageName = "Closed Lost")
+\`\`\`
+*"A discount cannot be requested against a Closed Lost opportunity."*
+
+**(d) Quantity in range** — on \`Quote_Line__c\`
+\`\`\`
+OR(Quantity__c <= 0, Quantity__c > 10000)
+\`\`\`
+*"Quantity must be between 0 and 10,000."*
+
+**(e) Unit price must be positive** — on \`Quote_Line__c\`
+\`\`\`
+ISPICKVAL(Unit_Price__c) && Unit_Price__c <= 0
+\`\`\`
+*"Unit price must be greater than zero."*
+(The \`ISPICKVAL\` guard matters: a required currency field is still absent on records created before
+the field existed, and a blank comparison can misfire.)
+
+**(f) Territory on the Opportunity must match the territory on the quote's Account** — cross-object,
+the hardest one
+\`\`\`
+AND(
+  NOT(ISNULL(Account__c)),
+  NOT(ISNULL(Account__c.Territory__c)),
+  NOT(ISNULL(Territory__c)),
+  Territory__c <> Account__c.Territory__c
+)
+\`\`\`
+*"The Opportunity territory must match the Account territory."*
+Three \`ISNULL\` guards because any blank in the chain makes the comparison meaningless. This is the
+rule that shows off two-level traversal — child → parent → parent's lookup.
+
+### 4. Lookup filter decisions
+
+| Rule | Filter? | Still required? | What the filter buys |
+|------|---------|-----------------|----------------------|
+| (a) Expired parent | No | Yes | nothing to select differently |
+| (b) Submitted needs lines | No | Yes | not a lookup |
+| (c) Closed Lost | **Yes** — exclude Closed Lost from the Opportunity picker | **Yes, despite it** | the rep never sees the dead deal |
+| (d) Quantity | No | Yes | numeric field |
+| (e) Unit price | No | Yes | numeric field |
+| (f) Territory mismatch | **Yes** — filter Opportunities to the Account's territory | **Yes, despite it** | prevents the mismatch being chosen at all |
+
+Two filters improve the experience; **all six rules stay**, because a filter only governs interactive
+selection and never governs values set by a flow, an import or an API.
+
+### 5. Two gap-detection reports
+
+**Report 1 — "Orphan quote lines"** · Detail · \`Quote_Line__c\`
+Filter: the parent lookup (\`Quote_Request__c\`) **= blank**. Columns: Line Number, Product,
+Quantity, Owner, CreatedDate. No grouping.
+*Why:* a blank-parent line is silently excluded from the roll-up, so the quote total is understated
+with no error anywhere.
+
+**Report 2 — "Submitted quotes with no lines"** · Summary · \`Quote_Request__c\`
+Filter: \`Request_Status__c\` = "Submitted". Group rows by **nothing**, with a measure
+**COUNT of Quote_Line__c** (possible because of master-detail). Then filter the *measure* to
+"equal 0" via a report filter on the aggregate.
+*Why:* these are quotes in the customer's hands that nobody has priced — an operational problem, not
+just a data one.
+
+The pair is deliberately complementary: one finds records pointing at nothing, the other finds
+records whose children are missing. Together they cover both directions of referential breakage.
+
+### 6. Deletion policy
+
+| Relationship | On parent delete | Guard |
+|---------------|------------------|-------|
+| 1 Line → Quote Request | Children deleted | Acceptable. A quote with no lines is not a quote. Deleting the quote should clean up. |
+| 2/3 Quote → Account / Opportunity | Lookup goes blank | **Remove Delete from Account and Opportunity** in the \`Brightline_Sales_Rep\` permission set, and add rule (b)'s sibling: block deleting an Account that has quotes. Prefer the permission set — a child validation rule cannot stop a parent being deleted. |
+| 4 Discount Request → Opportunity | Lookup goes blank | **Remove Delete** on Opportunity for anyone who does not own the deal; a Closed Won deal must not be deletable. |
+| 5 Kit Line → Kit | Children deleted | Acceptable and desired. |
+
+**Where orphan records must never be enabled:** relationships 1 and 5. In both cases the child is
+meaningless alone, and enabling orphans would create records that exist but are excluded from every
+roll-up — the worst state, because your totals are quietly wrong.
+
+**Extra safety worth adding:** remove **Delete** on \`Product__c\` from non-admin permission sets.
+Products are referenced by catalogue data and historical quotes, and a deleted Product leaves quote
+lines pointing at nothing.
+
+### 7. A rule that silently does not fire
+
+**The case:** rule (a) says no lines on an Expired quote. A rep changes an *active* quote to Expired.
+Existing lines stay, no error is shown, and the quote now holds lines while claiming to be expired.
+
+**Why:** validation rules fire **only when the record holding the rule is saved**. Saving
+\`Quote_Request__c\` does not re-save \`Quote_Line__c\`. All six rules above have this same blind spot —
+it is structural, not a mistake in the rule.
+
+**The declarative fix:** a **record-triggered flow on \`Quote_Request__c\`**, entry condition
+\`Request_Status__c\` = "Expired" (and it was not before), which either:
+
+- alerts the owner that existing lines are now invalid, or
+- creates tasks on each line to reconcile them.
+
+Phase 9 builds it. The key exam insight is the division of labour:
+
+- **Validation rule** = stop *this* save, because *this record* is invalid.
+- **Record-triggered flow** = react to a save on a *different* record, after it committed.
+
+Neither substitutes for the other, and neither is Apex.
+`,
+
+  '7.1': `
+### The six roll-ups
+
+| # | Field | Child | Aggregate | Source | Returns | The question it answers |
+|---|-------|-------|-----------|--------|---------|--------------------------|
+| R1 | \`Total_Value__c\` on Quote_Request__c | Quote_Line__c | SUM | \`Line_Total__c\` | Currency | What is this quote worth? |
+| R2 | \`Distinct_Product_Count__c\` | Quote_Line__c | COUNT (Distinct) | \`Product__c\` | Number | How many *different* products? |
+| R3 | \`Line_Count__c\` | Quote_Line__c | COUNT | *(none)* | Number | Does this quote have any lines? |
+| R4 | \`Latest_Contract_Date__c\` on Account | Contract (via Opportunity) | MAX | \`StartDate\` | Date | When did we last sign? |
+| R5 | \`Earliest_Delivery_Date__c\` | Quote_Line__c | MIN | \`Requested_Date__c\` | Date | When is the soonest delivery needed? |
+| R6 | \`Open_Opportunity_Count__c\` on Account | Opportunity | COUNT | *(none)* | Number | Are there still live deals? |
+
+### Why the aggregate, not the habit
+
+- **R1 SUM** — the only aggregate that answers "total". COUNT would count lines, MAX would find the
+  biggest line.
+- **R2 COUNT (Distinct)** — the classic exam item. 5 lines / 3 distinct products returns **3**, where
+  plain COUNT returns **5**.
+- **R3 plain COUNT** — counting records needs no source field at all.
+- **R4 MAX** — "most recent" is the maximum date. MIN would return the *oldest* contract.
+- **R5 MIN** — "earliest delivery needed" is the minimum. For a latest-delivery roll-up, use MAX.
+
+Return types: SUM over a Currency child can return Currency or Number; SUM over a Date is not
+offered; MIN/MAX over a Date return a Date.
+
+### Deletion and orphans
+
+- **Delete a line** — the roll-up recalculates immediately. Total drops, distinct count collapses,
+  Line_Count__c decrements. This is why roll-ups beat a number typed into a field.
+- **Enable orphan records** — children whose parent is blank are **silently excluded**. The total is
+  understated and nothing reports an error. That is the dangerous state: data that exists but is
+  invisible to every aggregate.
+
+So orphans stay **off** for Quote_Line__c → Quote_Request__c. Roll-ups work precisely *because* every
+child has a parent.
+
+### Why R3 is a roll-up and not a validation rule
+
+They answer different questions:
+
+- A **roll-up computes** a value. "How many lines?"
+- A **validation rule rejects** a save. "Do not let it be Submitted when count is 0."
+
+To get the rule, **read** the roll-up: \`AND(Request_Status__c = "Submitted", Line_Count__c = 0)\`. The
+roll-up is the input; the rule is the decision. Phase 7.2's V3 uses exactly this.
+`,
+
+  '7.2': `
+### The six rules
+
+| # | Error condition | Error message |
+|---|-----------------|---------------|
+| V1 | \`OR(Quantity__c <= 0, Quantity__c > 10000)\` | Quantity must be greater than zero and no more than 10,000. |
+| V2 | \`OR(ISNULL(Opportunity__c), Opportunity__c.StageName = "Closed Lost")\` | A discount request must reference an Opportunity that is not Closed Lost. |
+| V3 | \`AND(Request_Status__c = "Submitted", Line_Count__c = 0)\` | A quote request cannot be Submitted without at least one line. |
+| V4 | \`AND(ISPICKVAL(StageName), StageName = "Closed Won", ISPICKVAL(CloseDate), CloseDate < TODAY())\` | A Closed Won Opportunity must have a Close Date that is not in the past. |
+| V5 | \`ISPICKVAL(Unit_Price__c) && Unit_Price__c <= 0\` | Unit price must be greater than zero. |
+| V6 | \`AND(Account_Status__c = "Inactive", Open_Opportunity_Count__c > 0)\` | An Account with open Opportunities cannot be marked Inactive. |
+
+V6 needs a **cross-object roll-up** on Account (R6 above) — a validation rule cannot count children by
+itself.
+
+### Create, update, or both
+
+All six fire on **both create and update**, because every condition depends on field values that are
+present at save time rather than on what changed. If you wanted update-only behaviour you would add
+\`ISCHANGED()\` — which is the wrong tool here, because it would let the first insert violate the rule.
+
+### Which guard survives a blank
+
+- **V1** — no guard needed; a blank Quantity is not <= 0, so a blank slips through. If blanks should be
+  rejected, add \`ISBLANK(Quantity__c)\` to the \`OR\`.
+- **V2** — \`ISNULL\` is essential. Without it, the \`Opportunity__c.StageName\` traversal on a blank
+  lookup is unreliable and the rule misfires on create.
+- **V3** — \`Line_Count__c\` is a roll-up, never blank: an absent roll-up is **0**, not null. That is why
+  \`= 0\` is safe.
+- **V4** — \`ISPICKVAL\` guards the picklist **and** the date.
+- **V5** — \`ISPICKVAL\` guards currency, which is blank before the user types anything.
+- **V6** — roll-up is 0, not blank; \`> 0\` is safe.
+
+The general rule: **guard picklists, dates, currency, lookups and text with \`ISPICKVAL\` or \`ISNULL\`; you
+do not need to guard roll-ups.**
+`,
+
+  '7.3': `
+### Six roll-up summary fields
+
+| # | Object | Child | Aggregate | Source field | Returns | Business question |
+|---|--------|-------|-----------|--------------|---------|-------------------|
+| 1 | Quote_Request__c | Quote_Line__c (master-detail) | SUM | \`Line_Total__c\` | Currency | What is this quote worth? |
+| 2 | Quote_Request__c | Quote_Line__c | COUNT (Distinct) | \`Product__c\` | Number | How many *different* products? |
+| 3 | Quote_Request__c | Quote_Line__c | COUNT | *(none)* | Number | Does this quote have any lines? |
+| 4 | Quote_Request__c | Quote_Line__c | MAX | \`Requested_Date__c\` | Date | When is the soonest delivery? |
+| 5 | Account | Opportunity | COUNT | *(none)* | Number | Are there open deals? |
+| 6 | Account | Contract (via Opportunity) | MIN | \`EndDate\` | Date | When does the first contract expire? |
+
+### Why a formula could not do this
+
+**Roll-up 1 and 2.** A formula sees the record it lives on and one level of related *fields* (Phase 6).
+There is no way to say "add up every Quote_Line__c belonging to this request" — a formula has no
+concept of "all children". Alternatives if roll-ups were unavailable:
+
+- An Apex trigger aggregating the children, or
+- a **roll-up** (the correct answer), or
+- a denormalised number someone maintains by hand (which drifts immediately).
+
+**Roll-up 5 and 6.** Same reason — counting related Opportunities is aggregation, not arithmetic.
+
+Note the contrast: roll-up 1 sums a **field** across children (aggregation), while a formula summing
+two fields **on one record** is plain arithmetic. The line between them is "does this need every
+child?".
+
+### Eight validation rules
+
+| # | Condition | Message |
+|---|-----------|---------|
+| 1 | \`OR(Quantity__c <= 0, Quantity__c > 10000)\` | Quantity must be greater than zero and no more than 10,000. |
+| 2 | \`ISPICKVAL(Unit_Price__c) && Unit_Price__c <= 0\` | Unit price must be greater than zero. |
+| 3 | \`ISBLANK(Request_Date__c) && Request_Status__c = "Approved"\` | An approved quote request must have a requested delivery date. |
+| 4 | \`AND(Request_Status__c = "Submitted", Line_Count__c = 0)\` | A quote request cannot be Submitted without at least one line. |
+| 5 | \`AND(Request_Status__c = "Approved", Approval_Notes__c = BLANK())\` | An approved quote request must carry approval notes. |
+| 6 | \`OR(ISNULL(Opportunity__c), Opportunity__c.StageName = "Closed Lost")\` | A discount request must reference an Opportunity that is not Closed Lost. |
+| 7 | \`AND(ISPICKVAL(StageName), StageName = "Closed Won", ISPICKVAL(CloseDate), CloseDate < TODAY())\` | A Closed Won Opportunity must have a Close Date that is not in the past. |
+| 8 | \`AND(Account_Status__c = "Inactive", Open_Opportunity_Count__c > 0)\` | An Account with open Opportunities cannot be marked Inactive. |
+
+- **Cross-object:** rules 6, 7, 8.
+- **Uses a roll-up:** rules 4 and 8.
+- **Create/update:** all eight fire on both. None needs \`ISCHANGED()\`.
+
+### Duplicate rule
+
+- **Object:** \`Product__c\`
+- **Matching rule:** Part Number matches Part Number
+- **Matching requirement:** Allow **same** values (that is the point of a duplicate rule)
+- **Case sensitive:** No — "ABC-100" and "abc-100" are the same part
+- **Ignore blank values:** Yes — a Product with no part number cannot collide with anything
+
+### What these rules cannot catch
+
+| Gap | Declarative tool that closes it |
+|-----|--------------------------------|
+| A Product's price being changed to below cost | A **pricebook entry** validation rule on the entry object, not the Product |
+| An Account becoming Inactive because a *related* record changed | A **record-triggered flow** (Phase 9) — validation rules only see the record being saved |
+| Two Opportunities for the same customer slipping through | A **duplicate rule** on a composite external-ID field, or a **unique external ID** |
+| A quote expiring while lines still exist | A **scheduled flow** or **scheduled path** (Phase 9) |
+| Cumulative approval thresholds (3 quotes this month triggers review) | A **scheduled flow** recomputing a roll-up, or a **scheduled path** |
+
+### Orphan records
+
+Every roll-up would **silently exclude** orphaned children, so orphans stay **off** for
+Quote_Line__c → Quote_Request__c and for Opportunity → Account. Recommendation: never enable orphans
+on a relationship carrying a roll-up, and treat "allow orphan records" as a red flag during review.
+`,
+
+  '8.1': `
+### The five decisions
+
+| Need | Tool | Reason |
+|------|------|--------|
+| N1 | **RECORD TYPE** | Different page layout **and** different approval process per category — that is the definition of record type. |
+| N2 | **BUSINESS PROCESS** | A guided path on one object. A record type per stage would be absurd. |
+| N3 | **APP** | Different navigation menus per user group is an app concern (Phase 12), not a record-type concern. |
+| N4 | **PICKLIST** | One field, used for filtering. No different handling is required, so a record type is heavier than needed. |
+| N5 | **RECORD TYPE** | Different fields visible per team means different page layouts. |
+
+### What a record type does that a picklist cannot
+
+A picklist value **stores data**. A record type **changes handling**:
+
+1. Assigns a whole **page layout**.
+2. Drives a **business process** / stage path.
+3. Drives **assignment rules** for routing.
+4. Restricts **which picklist values are available** (so it composes with N4 rather than replacing it).
+
+A picklist can filter a report. It cannot change a layout, launch a process, or route an owner.
+`,
+
+  '8.2': `
+### The configuration
+
+| Record type | Page layout | Fields that differ |
+|-------------|-------------|--------------------|
+| **Enterprise** | \`Account-Enterprise Layout\` | Employees__c, Annual_Revenue__c (required on layout for this type) |
+| **SMB** | \`Account-SMB Layout\` | Owner_Legal_Name__c, Payment_Method__c |
+
+Both are active; **Enterprise** is the default so reps clicking "New" skip the picker.
+
+### Restricting Credit Terms per type
+
+Use a **picklist value set** on \`Credit_Terms__c\`, scoped to the record type:
+
+- **Enterprise** → Net 30, Net 60, Net 90
+- **SMB** → Net 30
+
+The picklist values are defined once on the object; the record type filters which are editable. This
+is the clean declarative way to make one field behave differently per category — no second field, no
+second object.
+
+### Required for one type only
+
+A **business rule scoped to the Enterprise record type**.
+
+Why not the others:
+
+- **Required on the object** applies to *all* types — SMB records would be forced to supply a field
+  they do not use.
+- **A validation rule** applies across all types unless conditioned; and "required-ness" scoped to a
+  record type is exactly what business rules are for.
+
+### A record type with no layout assigned
+
+Records open with the **object's default page layout**. "No layout assigned" means *fall back to
+default*, never "open blank". This matters in review: an unassigned type silently inherits a layout
+someone else edited.
+
+### Business process vs flow
+
+- **Business process** — a visual path of stages shown on the record, guiding the user where the record
+  is and what is next.
+- **Flow** — automation that performs actions: update records, send emails, create tasks, call Apex.
+`,
+
+  '8.3': `
+### 1. Which objects get record types
+
+| Object | Record types? | Reason |
+|--------|---------------|--------|
+| **Account** | **Yes** — Enterprise, SMB, Partner | Core scenario entity; approval process and layout genuinely differ by customer size, and sharing will later filter on it. |
+| **Opportunity** | **Yes** — New Business, Renewal | A renewal has a different approval threshold and different required fields from a new sale. |
+| **Quote_Request__c** | **No** — see below | The teams differ, but the *structure* does not. |
+| **Lead** | **Yes** — Enterprise Lead, SMB Lead | Standard object, standard use case: different qualification criteria and routing. |
+| **Contract** | **No** | Contracts are all governed by one approval process; a type would add no handling difference. |
+| **Product__c / Quote_Line__c** | **No** | Line items are homogeneous. |
+
+### 2. Account record types and their layouts
+
+| Record type | Layout | Differing fields |
+|-------------|--------|------------------|
+| **Enterprise** | \`Account-Enterprise Layout\` | Employees__c, Annual_Revenue__c, Contract_Term_Months__c |
+| **SMB** | \`Account-SMB Layout\` | Owner_Legal_Name__c, Payment_Method__c |
+| **Partner** | \`Account-Partner Layout\` | Partner_Tier__c, Partner_Discount__c |
+
+### 3. Quote_Request__c — record types or one picklist?
+
+**One status picklist plus a team lookup.** Trade-off:
+
+- *Record type per team* gives each team its own layout, so fields irrelevant to them are hidden —
+  genuinely better UX.
+- *But* it fragments reporting: quotes become two record types, and every report, dashboard and roll-up
+  must handle both. Approval rules and flows must be duplicated per type.
+- A **single picklist** keeps one dataset, one set of automation, and one report.
+
+Resolution: adopt record types per team **only when the field divergence becomes real**. Start with a
+picklist plus conditional layout rules (Phase 12) — lighter, reversible, and no report fragmentation.
+This is the trade-off the exam is testing: record types are powerful *and* costly.
+
+### 4. Picklist value restriction
+
+**Credit_Terms__c**, restricted by a **picklist value set** per record type:
+
+- Enterprise → Net 30 / Net 60 / Net 90
+- SMB → Net 30
+- Partner → Net 30 / Net 60
+
+### 5. Required for one record type only
+
+A **business rule scoped to that record type** — e.g. \`Contract_Term_Months__c\` required when Account
+type is Enterprise. Not a record-type setting, not an object-level Required flag, and not a plain
+validation rule.
+
+### 6. Business process sketch
+
+**Opportunity — Brightline Sales Path**
+
+- **Stages:** New → Qualify → Quote Sent → Negotiation → Closed Won / Closed Lost
+- **Entry criteria:** Type = "New Business" (Renewal takes a parallel path with an extra Finance
+  approval stage)
+- **Displayed as:** a path on the Opportunity record, with the current stage highlighted
+
+Actions at stage changes (emails, approvals) are **not** part of the business process — they are flows
+(Phase 9) or approval processes (Phase 10).
+
+### 7. Record types and sharing
+
+Record types **create the category; they grant nothing.** To restrict viewing to Enterprise reps only:
+
+- Build a **sharing rule** (Phase 2) on Account with criterion *Record Type = Enterprise*, shared with
+  the Public Group "Enterprise Reps", as **Read** or **Read/Write**.
+- Keep org-wide defaults as the broad baseline.
+
+Record type alone cannot make a record private. If a user thinks it does, that is the single most
+common record-type misconception on the exam.
+
+### 8. Retiring a record type later
+
+Set it to **inactive**. It leaves the creation picker so no new records use it, and every existing
+record keeps its type and data. Two rules: you cannot deactivate the **default** type until another is
+made default, and never delete the type — that is a destructive change affecting historical reports
+and automation. Reports filtering on the old type must be updated before you hide it, since users will
+still need to see historical records.
+`,
+
+  '9.1': `
+### The five triggers and conditions
+
+| # | Flow type | Trigger | Entry condition |
+|---|-----------|---------|-----------------|
+| F1 | Record-triggered (after save) | Lead, **Record Created** | \`NOT(ISBLANK(Country))\` |
+| F2 | Record-triggered (after save) | Quote_Request__c, **Created and Updated** | \`AND(ISCHANGED(Request_Status__c), Request_Status__c = "Submitted")\` |
+| F3 | **Record-triggered, BEFORE save** | Quote_Request__c, Created and Updated | \`Request_Status__c = "Submitted"\` (the line check is a Decision inside) |
+| F4 | **Scheduled** | Schedule: once daily at 02:00 | n/a — flow starts, then Get Records where \`Request_Status__c = "Submitted" AND Request_Submitted_Date__c <= TODAY() - 7\` |
+| F5 | Record-triggered (after save) | Account, Created and Updated | \`AND(ISCHANGED(Account_Status__c), Account_Status__c = "Inactive")\` |
+
+### What dropping ISCHANGED() costs
+
+**F2 without it:** the entry condition becomes \`Request_Status__c = "Submitted"\`. That is satisfied by
+*any* save of a submitted quote — a user editing a note, a Phase 7 roll-up recalculation, another flow
+updating a field. Every one of those re-runs the flow and overwrites \`Request_Submitted_Date__c\` with a
+new today(). The date stops meaning "when it was first submitted" and starts meaning "whenever it was
+last saved", and the flow may chain into further updates.
+
+**F5 without it:** the owner is notified on every save of an inactive Account — which includes saves
+made by flows, integrations and the API. A nightly data clean-up could generate hundreds of
+notifications.
+
+### The create caveat on ISCHANGED()
+
+\`ISCHANGED()\` is TRUE on **create** as well, so "changes to X" conditions also fire when a record is
+first created already holding X. Where that is wrong, exclude create explicitly:
+
+\`AND($Record.CreatedDate <> Request_Submitted_Date__c, ISCHANGED(Request_Status__c))\`
+
+or split into two flows — one on Created, one on Updated.
+`,
+
+  '9.2': `
+### The four flows, element by element
+
+**E1 — Credit review on Net 90 accounts**
+\`\`\`
+Trigger: Opportunity, Created and Updated
+Entry:   AND(ISCHANGED(Amount), Amount > 100000)
+  Get Records        -> the related Account by Id
+  Decision           -> Credit_Terms__c = "Net 90"?
+    Create Records   -> Task: "Review credit before confirming"
+\`\`\`
+The **Get Records** is the lookup; the **Decision** is the branching. They are separate elements and
+confusing the two is a common exam slip.
+
+**E2 — Expire stale drafts**
+\`\`\`
+Scheduled trigger: daily at 02:00
+  Get Records    -> Quote_Request__c where Status = "Draft"
+                     and Last_Activity__c <= TODAY() - 30
+  Update Records -> Status = "Expired"
+\`\`\`
+No Loop needed: **Update Records** accepts a whole collection and updates it in one element. This is
+the pattern that keeps a flow well under 50 elements no matter how many records match.
+
+**E3 — Copy parent status onto lines**
+\`\`\`
+Trigger: Quote_Request__c, Created and Updated
+Entry:   AND(ISCHANGED(Request_Status__c), Request_Status__c <> "Draft")
+  Get Records   -> Quote_Line__c where Quote_Request__c = \$Record.Id
+  Loop          -> over those lines
+    Update Records -> Request_Status__c = \$Record.Request_Status__c
+\`\`\`
+- Repeating element: **Loop**.
+- **The limit:** each iteration costs the Loop step **plus** the Update, so roughly **48 lines** max
+  before the 50-element cap is hit. A 50-line quote fails mid-run and rolls back.
+
+Fixes, in order of preference:
+
+1. Use a **roll-up** on the parent (Phase 7) for any value you only need to read.
+2. Move the copy to a **scheduled flow** handling all quotes in bulk.
+3. If it must stay per-record, accept the limit and document it.
+
+**E4 — Reject zero quantity (before save)**
+\`\`\`
+Trigger: Quote_Line__c, Created and Updated, BEFORE save
+Entry:   Quantity__c <= 0
+  Fault  -> "Quantity must be greater than zero."
+\`\`\`
+
+### Why only a before-save flow can do E4
+
+A Fault needs an uncommitted transaction to abort.
+
+- **Before-save flow** — the run happens while the record is still being saved, so raising a Fault
+  rejects the transaction and the user sees the message.
+- **After-save record-triggered flow** — the record is already committed. A Fault here records a failed
+  run; the record stays saved and the user sees nothing.
+- **Scheduled / autolaunched** — same problem, even further from the save.
+
+E4 is exactly the case for a **validation rule** too (Phase 7's V1). A flow is the heavier tool here;
+prefer the rule unless you need flow-specific behaviour.
+`,
+
+  '9.3': `
+### The five flows
+
+**F1 — Stamp the submission date**
+- **Type:** record-triggered, after save
+- **Trigger:** Quote_Request__c, Created and Updated
+- **Entry:** \`AND(ISCHANGED(Request_Status__c), Request_Status__c = "Submitted")\`
+- **Elements:** Assignment (\`Request_Submitted_Date__c = TODAY()\`) → End
+- **Self-retrigger guard:** the entry condition. The Assignment touches only
+  \`Request_Submitted_Date__c\`, so the flow's own save has \`ISCHANGED(Request_Status__c) = FALSE\` and
+  the run stops there.
+
+**F2 — Block an empty submission (before save)**
+- **Type:** record-triggered, **BEFORE save**
+- **Trigger:** Quote_Request__c, Created and Updated
+- **Entry:** \`Request_Status__c = "Submitted"\`
+- **Elements:** Decision (\`Line_Count__c = 0\`?) → *Yes* → Fault (custom error, message "A quote request
+  cannot be Submitted without at least one line.") → *No* → End
+- **Why before save:** the roll-up \`Line_Count__c\` lives on the saved parent, but rejecting a save is
+  only possible before commit.
+
+**F3 — Credit review on large deals**
+- **Type:** record-triggered, after save
+- **Trigger:** Opportunity, Created and Updated
+- **Entry:** \`AND(ISCHANGED(Amount), Amount > 100000)\`
+- **Elements:** Get Records (related Account) → Decision (\`Credit_Terms__c = "Net 90"\`?) → Create
+  Records (Task on the Account owner)
+- **Guard:** \`ISCHANGED(Amount)\`. The flow only reads the Account and creates a task, never updating the
+  Opportunity, so no retrigger is possible.
+
+**F4 — Expire stale requests (scheduled)**
+- **Type:** scheduled
+- **Trigger:** daily at 02:00
+- **Elements:** Get Records (\`Request_Status__c = "Submitted"\` and \`Request_Submitted_Date__c <= TODAY() -
+  7\`) → Decision (collection not empty?) → Update Records (\`Request_Status__c = "Expired"\`) → Create
+  Records (notification tasks on the owners)
+- **Guard:** the run is not record-triggered, so it cannot retrigger.
+- **Why a scheduled flow and not a scheduled path:** one nightly sweep handles every stale quote in a
+  single transaction of a couple of elements. A scheduled path would create one pending action per quote
+  and consume resources without benefit.
+
+**F5 — After approval, kick off contracting**
+- **Type:** record-triggered, after save
+- **Trigger:** Discount_Request__c, Created and Updated
+- **Entry:** \`AND(ISCHANGED(Approval_Status__c), Approval_Status__c = "Approved")\`
+- **Elements:** Get Records (the Opportunity) → Create Records (a Contract task for the Contracts team,
+  with the Opportunity Id) → Create Records (a task on the owner explaining the discount was granted)
+- **Guard:** \`ISCHANGED(Approval_Status__c)\`.
+
+### Roll Back Records rationale — F5
+
+Without it, a failure at the second Create Records would leave **the Contract task created and the
+owner notification missing**. The requester sees "approval complete" but no one is told, and the next run
+adds a duplicate task.
+
+With Roll Back Records, both Create Records elements are in one transaction: either the requester is
+notified and the task exists, or neither happens. A run is not a sequence of independent saves, it is
+one unit of work.
+
+### One flow that should be an autolaunched flow
+
+**F6 — "Copy status to lines" becomes autolaunched**, called by F1 and by the Phase 10 approval process
+whenever a status changes.
+
+- **Reason is reuse, not logic:** the same element sequence (Get Records → Loop → Update) is needed by
+  the submission flow and the approval flow. Autolaunched makes it one version, invoked by both, instead
+  of two copies that drift apart.
+- **Bonus:** an autolaunched flow may use a **Wait** element, so the same subflow could wait for
+  approval before propagating status.
+- **Caller contract:** it takes \`quoteRequestId\` and \`newStatus\` in, and returns nothing.
+
+### The two flows that must not overlap the Phase 7 rules
+
+| Phase 7 rule | Why the rule owns it | What flow adds |
+|---|---|---|
+| V3: no lines on Submitted | A validation rule rejects the save with a message **on the record the user is editing** — the instant, contextual error the user can act on. A flow cannot reject an after-save run. | F2 does the same job but only if you need flow-specific behaviour such as a custom error message. Prefer the rule; F2 is the fallback. |
+| V4: no Closed Won with a past Close Date | Pure value validation on the record being saved. No related-record read, no automation — a flow would be strictly heavier. | Nothing. Keep it as a rule. |
+
+The division: **validation rules judge the record in front of the user; flows do things after the fact.**
+
+### Debugging plan
+
+**Where to look, in order:**
+
+1. **Flow Runs** (Setup → Flows) — filter by Flow and by the record. Read the status first.
+2. **Status meanings** — *Finished*, *Failed* (read the error), *Waiting* (a Wait element, expected),
+   *Waiting to Start*, *Fault*.
+3. **The error message** — it names the failing element and the reason. The most common are a required
+   field being null, an exceeded element limit, or a null reference from a Get Records that returned
+   nothing.
+4. **The flow debugger** — step through a single run and read the data at each element.
+
+**The two failure paths to test deliberately:**
+
+1. **F2 with zero lines** — create a Submitted quote with no lines and confirm the Fault fires with the
+   right message and nothing was written.
+2. **F5 with a missing parent** — submit a Discount_Request__c whose Opportunity lookup is blank and
+   confirm the Get Records returns nothing and the flow stops cleanly instead of erroring.
+
+Testing only the happy path is how untested flows reach production.
+
+### Loop and double-run review
+
+| Flow | Risk | Guard |
+|---|---|---|
+| F1 | Flow's own save re-triggers | \`ISCHANGED(Request_Status__c)\` is FALSE for the stamp save |
+| F2 | Before-save flow cannot retrigger | n/a — it aborts or completes in the same transaction |
+| F3 | User edits Amount twice in a session | Each genuine edit is a new run; \`ISCHANGED\` correctly allows it. Duplicate tasks are prevented by a **duplicate rule** on (Opportunity, Requested_By, Amount) rather than by suppressing the flow. |
+| F4 | Re-running nightly re-expires | Decision on the collection: only records still Submitted are picked up, so a second run is a no-op |
+| F5 | Approval saved twice by two users | \`ISCHANGED(Approval_Status__c)\` plus the approval process's own lock |
+`,
+
+  '10.1': `
+### The four approval processes
+
+**A1 — Small discounts (owner decides, one step, reject-capable)**
+- **Object:** Discount_Request__c · **Entry criteria:** none
+- **Criteria:** \`AND(Amount__c > 0, Amount__c <= 5000)\`
+- **Approver:** *specify a user related to the record* — \`\${!User.Id}\`, the Opportunity Owner
+- **Approval layout:** Amount__c, Discount_Percent__c, Comments__c
+- **Final approver:** yes — one step, so it is final
+- **Reject → edit → resubmit: allowed.** The criteria read \`Amount__c\`, which the requester controls, so
+  a rejection can be resolved by correcting the amount. That is the textbook reason to allow edit on
+  rejection, and the reason to keep the criteria on editable fields.
+
+**A2 — High-value quotes (single VP approval)**
+- **Object:** Quote_Request__c · **Entry criteria:** none
+- **Criteria:** \`Total_Value__c > 100000\`
+- **Approver:** *specify users* — the VP Finance (one queue)
+- **Final approver:** yes
+- **Phase 7 dependency:** the **SUM roll-up** \`Total_Value__c\`. This matters more than it looks: a
+  typed number would let a rep lower \`Total_Value__c\` to slip under the threshold, because final approval
+  locks fields only *after* it. A roll-up cannot be edited, so the threshold is always the real value.
+
+**A3 — Very large quotes (three named sign-offs)**
+- **Object:** Quote_Request__c · **Criteria:** \`Total_Value__c > 250000\`
+- **Steps:**
+  1. **Sales Manager** (user) — \`Approval_1_Comments__c\`
+  2. **Finance Director** (user) — \`Approval_2_Comments__c\`
+  3. **VP Commercial** (queue, *final approver*) — \`Approval_3_Comments__c\`
+- **Custom fields: 3 comments + 1 final approver lookup** (\`Final_Approver__c\`).
+- **Why more than one comments field:** a single shared \`Comments__c\` is overwritten by each approver in
+  turn, so the record ends up holding only the last opinion. Each step needs its own field to be a true
+  multi-stage sign-off. Add a **step criteria** on step 3 (\`Total_Value__c > 400000\`) so the VP only
+  signs off above 400k, otherwise A2 and A3 overlap.
+
+**A4 — Opportunity discounts (approver chosen at submit time)**
+- **Object:** Opportunity · **Entry criteria:** none
+- **Criteria:** \`Discount_Percent__c > 15\`
+- **Approver:** *let the submitter select* — a queue of two managers plus the wizard
+- **Wizard required:** without it there is no UI to make the selection
+- **Create record as:** checked — the request is created on the Opportunity, then submitted
+
+The difference from A3: A4 has **one** step whose approver varies per request. A3 has **three** fixed
+steps. Same object family, completely different design.
+`,
+
+  '10.2': `
+### Ten lifecycle answers
+
+| # | Answer | Reason |
+|---|--------|--------|
+| L1 | **FALSE** | Final approval locks only the fields **on the approval layout**. Everything else stays editable. |
+| L2 | **TRUE** | This is the entire purpose of final approval: preserve what the approver certified. |
+| L3 | **TRUE** | Rejection exists so the submitter can fix and resubmit. Unlocking the layout is the mechanism. |
+| L4 | **FALSE** | There is a hard limit of three. |
+| L5 | **TRUE** | Three submissions maximum, counted across all resubmissions after rejections. |
+| L6 | **FALSE** | Final approval is final. The submitter cannot recall it. |
+| L7 | **TRUE** | Admin + **Manage Users** permission unlocks it, and the change is logged in Setup. |
+| L8 | **TRUE** | Submitting evaluates the record's validation rules. |
+| L9 | **FALSE** | Approval does not re-run validation rules. |
+| L10 | **FALSE** | While pending, the approval layout fields are read-only. Only rejection releases them. |
+
+### The three most-missed statements
+
+**L1 vs L2 — the trap.** The option "all fields are locked" is wrong and the option "approval layout
+fields are locked" is right. An exam question will offer both in the same question to catch anyone who
+half-remembers the rule. The precise statement is:
+
+> Fields **on the approval layout** are locked on final approval. Other fields are not.
+
+**L4/L5 — the number.** Three submissions, not unlimited and not "until approved". Rejected requests
+consume submissions, so a record rejected twice has only one submission left.
+
+**L7 — the escape hatch.** "Locked" is not "immutable". Without L7, a well-written answer claiming
+nobody can ever change approved data would be wrong. Admins can, and the override is audited.
+`,
+
+  '10.3': `
+### 1. The three approval processes
+
+**AP1 — Standard Quote Approval (owner decides, one step)**
+
+| Setting | Value |
+|---|---|
+| Object | Quote_Request__c |
+| Entry criteria | \`ISNEW() OR ISCHANGED(Request_Status__c)\` |
+| Criteria | \`AND(Request_Status__c = "Submitted", Line_Count__c > 0)\` |
+| Approver | Related user — \`\${!User.Id}\` (the Quote Owner) |
+| Approval layout | Total_Value__c, Requested_Date__c, \`Comments__c\` |
+| Initial submitter | Record owner |
+| Allow submission by creator | No |
+| Allow recall | Yes |
+| Final approver | Yes |
+| Initial submission actions | Task on the approver; email alert |
+| Final approval actions | Field update \`Approval_Status__c = "Approved"\`; email alert to the owner |
+
+Uses the Phase 7 **roll-up** \`Line_Count__c\` so an empty quote cannot be approved even if a save somehow
+slipped past the validation rule.
+
+**AP2 — High-Value Quote Approval (three steps, final approver)**
+
+| Setting | Value |
+|---|---|
+| Object | Quote_Request__c |
+| Criteria | \`Total_Value__c > 250000\` |
+| Step 1 | Sales Manager (user) — \`Approval_1_Comments__c\` |
+| Step 2 | Finance Director (user) — \`Approval_2_Comments__c\` |
+| Step 3 | VP Commercial (queue) — \`Approval_3_Comments__c\`, **final approver** |
+| Reject allows edit | Steps 1 and 2 yes; step 3 no |
+| Custom fields | \`Approval_1_Comments__c\`, \`Approval_2_Comments__c\`, \`Approval_3_Comments__c\`, \`Final_Approver__c\` |
+| Initial submission actions | Task + email alert to the Sales Manager |
+| Final approval actions | Field update \`Approval_Status__c = "Approved"\`; create a Contract task; email to Finance |
+
+**AP3 — Opportunity Discount Approval (approver chosen at submit time)**
+
+| Setting | Value |
+|---|---|
+| Object | Opportunity |
+| Entry criteria | \`AND(ISNEW(), Discount_Percent__c > 0)\` |
+| Criteria | \`Discount_Percent__c > 15\` |
+| Approver | Let the submitter select — queue of two regional managers, **wizard on** |
+| Allow submission by creator | No |
+| Approval layout | Discount_Percent__c, Amount, \`Comments__c\` |
+| Final approver | Yes |
+| Initial submission actions | Email alert to the selected approver; task |
+
+The **entry criteria** create the request on the record itself when a discount first appears, so the
+Opportunity carries a dormant approval until it is needed. Most Opportunities never get a discount, and
+this keeps their page clean.
+
+### 2. Field-locking policy
+
+| Approval | Layout fields (locked on final approval) | Still editable afterwards |
+|---|---|---|
+| AP1 | Total_Value__c, Requested_Date__c, Comments__c | Request_Status__c, Delivery_Method__c, all lines |
+| AP2 | Total_Value__c, Requested_Date__c, all three approval comment fields, Final_Approver__c | Request_Status__c, Delivery_Method__c, Ship_Complete__c |
+| AP3 | Discount_Percent__c, Amount (standard), Comments__c | StageName, CloseDate, everything else |
+
+Rule applied: **the approval layout carries only what the approver actually decided on.** Delivery
+preferences are deliberately excluded — locking them would annoy users and certify nothing.
+
+### 3. Lifecycle as users see it
+
+| State | Who acts | Approval layout fields |
+|---|---|---|
+| Draft | Requester | **Editable** |
+| Submitted | Approver | Read-only (nothing decided) |
+| Rejected | Requester | **Editable**, then resubmit (whole approval restarts) |
+| Approved (final) | Admin only | **Locked** |
+| Recalled | Requester | Editable, back to draft-like |
+
+**After the third submission:** recall (if nobody has decided) or cancel. A fourth submission is
+impossible.
+
+### 4. Ordering when two processes could match
+
+AP1 matches any submitted quote with lines; AP2 matches the same object above 250k. They **overlap**.
+
+- **Order AP2 first**, because a large quote also satisfies AP1's criteria.
+- If AP1 went first, a 300k quote would be approved by the **owner** under AP1 and never reach AP2's
+  three signatures. That is wrong for the business.
+
+With AP2 first:
+
+- 300k quote → AP2 matches, consumes the submission, runs all three steps.
+- 40k quote → AP2 criteria fail; AP1 is then considered and runs.
+- 300k quote rejected by AP2, then edited down to 40k and resubmitted → AP2 no longer matches, so AP1
+  runs. Arguably wrong. Fix: make Total_Value__c non-editable on AP2 rejection, or lower AP1's ceiling.
+
+Lesson: **specific before general.** The exam question is always about this.
+
+### 5. The supporting flow
+
+**F7 — Post-approval fulfilment**
+- **Trigger:** Quote_Request__c, Created and Updated
+- **Entry:** \`AND(ISCHANGED(Approval_Status__c), Approval_Status__c = "Approved")\`
+- **Elements:** Get Records (related Opportunity) → Create Records (Contract task for the Contracts
+  team, carrying the Opportunity Id) → Create Records (task on the rep confirming approval)
+- **Self-retrigger guard:** \`ISCHANGED(Approval_Status__c)\` — and the flow never writes back to
+  Quote_Request__c, so a second run is structurally impossible.
+- **Roll Back Records on**, so a failure at the second task does not leave the Contracts team working
+  from a quote nobody was told was approved.
+
+### 6. Submit rules and limits
+
+- **Submissions: 3 maximum**, counted across rejections.
+- **Finally approved records cannot be recalled.**
+- **Allow submission by creator: off** on all three, so a rep cannot approve their own quote.
+- **Allow recall: on** — a rep who spots a typo before the approver opens it should be able to fix it.
+
+### 7. Email alerts and tasks
+
+| Trigger | Alert | Reason |
+|---|---|---|
+| Initial submission | Email + task to step 1 approver | An approval nobody is notified about never happens |
+| Each step advance | Email to that step's approver | Otherwise a three-step approval stalls at step 2 |
+| Rejection | Email to the submitter with the comments | Tells them what to fix |
+| Final approval | Email to the submitter and the Account owner | Closes the loop |
+| Final approval | Task to the Contracts team | Starts the next department's work |
+| Recall / cancel | Email to the approver queue | Stops someone chasing a dead request |
+
+Every one is outbound-message backed so the wording stays consistent.
+
+### 8. The two anti-patterns
+
+**A flow must never check the approval criteria.** If the threshold changes from 250k to 300k and only
+the flow is updated, quotes are approved under two different rules at once. The decision lives in
+exactly one place: the approval process.
+
+**A flow must never submit, approve, reject, recall or cancel.** Those states belong to the approval
+process; a flow manipulating \`Approval_Status__c\` directly creates records that are "approved" with no
+approval history, no approver and no audit trail.
+
+Related trap: **do not lock approved fields with a validation rule.** Locking is the approval layout's
+job. A validation rule that rejects edits to approved data looks equivalent and produces far worse
+error messages.
+`,
+
+  '11.1': `
+### The four rules
+
+**W1 — Stamp the loss reason**
+| Part | Value |
+|---|---|
+| Evaluation criteria | When **a specific field is edited** → StageName |
+| Criteria | \`AND(ISPICKVAL(StageName), StageName = "Closed Lost")\` |
+| Action | **Field Update** → \`Closed_Lost_Reason__c = "Lost on price"\`, re-evaluate **off** |
+
+Better alternative: none needed. A field update is the right action. A before-save flow would also work
+but adds a builder for a single assignment. If the reason needed to vary by lost competitor, use a
+before-save flow with a Decision instead.
+
+**W2 — Email the VP about a big discount**
+| Part | Value |
+|---|---|
+| Evaluation criteria | When **Discount_Percent__c is edited** |
+| Criteria | \`AND(ISPICKVAL(Discount_Percent__c), Discount_Percent__c > 20)\` |
+| Action | **Email Alert** to the VP, with the "Discount Exceeded" template |
+
+Better alternative: an **approval process** (Phase 10). A discount over 20% should be *decided*, not
+merely announced. The email-only rule notifies the VP after the fact with no ability to stop anything.
+
+**W3 — Task the owner on submission**
+| Part | Value |
+|---|---|
+| Evaluation criteria | On **created and edited** (the field can change after create) |
+| Criteria | \`ISPICKVAL(Request_Status__c) && Request_Status__c = "Submitted"\` |
+| Action | **Task** assigned to the Opportunity owner, due \`TODAY() + 2\` |
+
+Better alternative: the **approval process** initial-submission action (a task is a first-class
+approval action and fires per step). Use a workflow rule only if there is no approval involved.
+
+**W4 — Push the newest line date to the parent**
+| Part | Value |
+|---|---|
+| Evaluation criteria | On **created** (and deleted, if line removal should clear it) |
+| Criteria | blank — always true |
+| Action | **Update Record** on the related Quote_Request__c → \`Last_Line_Date__c\` |
+
+**This is the clearest case for a flow, and then for a roll-up.** Copying a child value onto the parent
+is aggregation: Phase 7's roll-up with **MAX** over the line date does it declaratively, costs nothing,
+and cannot drift. Only use Update Record when you need a non-aggregate value such as "was any line ever
+added".
+`,
+
+  '11.2': `
+### The routing design
+
+| Order | Entry criteria | Criteria | Assign to |
+|---|---|---|---|
+| **1** | Record Type = "Enterprise" | \`AND(Country__c = "France", Lead_Source__c <> "Web")\` | **User** Jean Moreau |
+| **2** | Record Type = "SMB", region EMEA | \`Country__c != "France"\` | **Queue** "EMEA Inbound" |
+| **3** | *(default assignment)* | — | **Queue** "Unassigned" |
+
+- **L-A** is the narrowest, so it is **first**.
+- **L-B** covers EMEA except French Enterprise.
+- **L-C** is the **default assignment**, which catches everything else.
+
+### What happens when several match, and what goes wrong when order is wrong
+
+- **First match wins, and evaluation stops.** A French Enterprise lead matches L-A, is assigned to Jean,
+  and L-B and L-C never evaluate.
+- **If the order is L-B, L-A, L-C:** every French lead hits L-B and goes to the EMEA queue. **L-A
+  becomes dead code, silently.** Nothing in the UI warns you, which is why "audit the order" is a real
+  maintenance task.
+- **If no rule matches:** the record goes to the **default assignment** — L-C, the Unassigned queue. If
+  no default is configured, the record has no owner at all, which is invisible in list views until
+  someone opens Setup and notices.
+
+### The permission requirement
+
+A **sharing rule** on Lead, source = queue "EMEA Inbound", sharing with the **EMEA Inbound** public group,
+access **Read** (or Read/Write for members who will take ownership).
+
+Without it, the queue exists, assignment rules route records into it, the auto-response emails arrive —
+and every rep opens an **empty queue**. Queue membership is not record access. This is the single most
+common routing failure and it looks exactly like "the automation did not work".
+
+### Auto-response rule
+
+| Setting | Value |
+|---|---|
+| Object | Lead |
+| Trigger | **Assigned to a queue or user** |
+| Recipient | The Lead Owner |
+| Attach template | **Lightning email template** — "Brightline — we've received your enquiry" |
+| Create task | Yes, due in 1 day, subject "Contact new lead" |
+| Active | Sandbox and Production enabled separately |
+
+### "On create" vs "on assignment"
+
+| Trigger | Fires when | Choose it when |
+|---|---|---|
+| **On create** | The record is created, regardless of owner | The message is a pure acknowledgement and routing does not matter |
+| **On assignment** | The owner **changes** | The message is personal ("Jean will be in touch"), or you only want the routed owner to receive it |
+
+**Enabling both risks two emails** to the same person for one lead, and the on-create copy may go to a
+placeholder owner before assignment rules have run. The requirement here is "notify whoever ends up
+owning it", so **on assignment** is the correct single choice.
+`,
+
+  '11.3': `
+### 1. The three-step audit
+
+**Step 1 — Inventory.** Per object, list active workflow rules with their evaluation criteria, criteria
+formula and actions. Also list active flows, assignment rules and queues so you see the whole automation
+surface rather than one tool in isolation.
+
+**Step 2 — Diagnose.** For each rule, look for the four dangerous patterns below. The point is to find
+**latent bugs** — things that work today by luck of ordering and will break on the next release or the
+next admin change.
+
+**Step 3 — Prioritise.** Score each finding:
+
+| Priority | Signal |
+|---|---|
+| **P1** | Sends email or creates records on *every save* — inbox and data noise |
+| **P1** | Uses **after-update re-evaluation** and touches a field in its own criteria — a live loop |
+| **P2** | Field Update that duplicates what a roll-up or formula already provides |
+| **P2** | Order dependency: rule B reads a field rule A writes, with undefined ordering |
+| **P3** | Duplicates an approval process action |
+| **P3** | Dead or unreachable (e.g. an assignment rule under a broad one) |
+
+Fix P1 first — they are the ones users are already complaining about.
+
+### 2. Four dangerous legacy patterns
+
+| # | Pattern | Symptom | Modern replacement |
+|---|---------|---------|--------------------|
+| 1 | Evaluation criteria "created **or edited**" with criteria that stays true | The same email or task fires on **every save** — dozens of identical emails and orphan tasks | Add \`ISCHANGED(Field__c)\` to the criteria, or use a record-triggered flow with the same guard (Phase 9) |
+| 2 | Field Update with **"re-evaluate after every update"** on, where the updated field appears in the criteria | A **loop**: re-run, re-update, re-run until governor limits are hit. Symptom is intermittent "record locked by a workflow" or silent failures | Turn re-evaluation **off**, or move to a flow where the entry condition stops the re-run |
+| 3 | A workflow rule setting a field that another rule or a flow reads | **Order-dependent flakiness.** Works in production, fails after a metadata deploy or a flow edit that changes ordering | Collapse into **one flow**, or make the dependency explicit with a before-save flow |
+| 4 | A workflow rule copying a child value onto the parent (a "mini roll-up") | The parent value **drifts** whenever the rule misses an edit, bulk delete, or API update. Nobody notices for months | **Roll-up summary** (Phase 7) — declarative, free, cannot drift |
+
+### 3. Evaluation order, and which step can reject a save
+
+1. **Validation rules** — reject.
+2. **Duplicate rules** — reject.
+3. **Workflow rules and flows** — after save, undefined order between themselves.
+4. **Roll-up summaries** recalculate.
+5. **Apex, commits, after-trigger automation.**
+
+**Only steps 1 and 2 can reject a save.** Everything from step 3 onward runs on a record that is already
+committed. This is why "prevent this save" is a validation rule, never a workflow rule — and it is the
+most commonly missed point in the whole logic domain.
+
+### 4. Lead routing: 3 regions, 6 named reps, 2 queues
+
+| Order | Entry criteria | Criteria | Assign to |
+|---|---|---|---|
+| 1 | Region = EMEA, Country = France | \`OR(Lead_Score__c > 80, NumberOfEmployees__c > 1000)\` | Rep **1** (Jean Moreau) |
+| 2 | Region = EMEA, Country = France | \`AND(Lead_Score__c <= 80, NumberOfEmployees__c <= 1000)\` | Rep **2** (Amelie Bernard) |
+| 3 | Region = EMEA | \`ISBLANK(Country__c) OR NOT(ISPICKVAL(Country__c))\` | **Queue A** "EMEA Inbound" |
+| 4 | Region = APAC | \`NOT(ISBLANK(Company__c))\` | Reps **3–4** as one user queue (first to act wins) |
+| 5 | Region = APAC | blank | **Queue B** "APAC Inbound" |
+| 6 | *(default assignment)* | — | **Queue A** |
+
+Design notes:
+
+- Rules **1 and 2 split the French book** by score, so both are narrow and both sit above the general
+  EMEA rule.
+- **Rule 3 must be below 1 and 2.** Because rules 1 and 2 together already exhaust France, rule 3 does
+  not need to exclude France — but keeping the exclusion makes the design safe to reorder later.
+- **Rules 4 and 5 split APAC** the same way, with the two named reps as a single user queue so neither
+  rep permanently owns every mid-size account.
+- The **default assignment catches Americas** and anything unrecognised, routing it to Queue A rather
+  than leaving records ownerless.
+
+### 5. Auto-response rule
+
+| Setting | Value |
+|---|---|
+| Object | Lead |
+| Trigger | **Assigned to a queue or user** |
+| Recipient | The Lead Owner |
+| Template | **Lightning email template**, "Brightline — we've received your enquiry" |
+| Task | Created, due 1 day, subject "Contact new lead" |
+| Why not "on create" | The message is personal and routed; on-create fires before assignment rules finish and could reach a placeholder owner |
+
+### 6. The access rule
+
+**Sharing rule**: object **Lead**, source **Queue A / EMEA Inbound** (and the same for Queue B), sharing
+with the corresponding **public group**, access **Read/Write** for members who take ownership (**Read**
+if they only read).
+
+Without it, the routing is perfect and the queues are empty. Queue membership is not access.
+
+### 7. Three migration decisions
+
+| Rule | Decision | Reason |
+|---|---|---|
+| **Copies the newest line date from Quote_Line__c to Quote_Request__c** | **REPLACE** | A hand-rolled roll-up, already wrong for bulk edits and deletes. Replace with a **MAX roll-up summary** — declarative, free, cannot drift |
+| **Emails the VP whenever Discount_Percent__c > 20** | **REPLACE** | The requirement is a *decision*, not a notification. Replace with an **approval process** (Phase 10); the email becomes an approval email alert, and the VP gains the ability to reject |
+| **Creates a task on the owner when a Quote_Request__c is Submitted** | **LEAVE** | It works, it is low-risk, and it has no after-update re-evaluation and no order dependency. Migrating a working single-action rule to a flow adds risk for no benefit. Revisit if other automation starts depending on the task |
+
+### 8. Migrating a rule that had "re-evaluate after update" on
+
+**What breaks:** the workflow rule re-ran itself by design, and that re-run is often what made the second
+application happen — a follow-up email, a cascade to a related record. A flow has no "re-evaluate"
+switch; it starts once when the entry condition matches, and it stops if nothing downstream writes to the
+record. So the follow-up disappears silently.
+
+**Also:** a workflow "Field Update" maps to a flow **Update Records** element, which runs as a separate
+transaction from the trigger. A chain of workflow field updates becomes a chain of flow elements, and
+each element counts against the **50-element limit** — a loop that ran fine as a workflow rule may now
+exceed the cap and roll back.
+
+**How to test:**
+
+1. Write the original rule's behaviour as **observable outcomes**: on save X, the user sees Y and record Z
+   has field W.
+2. Build the flow to reproduce exactly those outcomes, including the follow-up.
+3. Test **create, edit, and the specific save that used to trigger the re-run**.
+4. Test in a sandbox with **real record volumes**, not a single scratch record — order-dependent bugs do
+   not reproduce with one record.
+5. **Deactivate the old rule only after the flow is verified.** Never both active: duplicate emails,
+   duplicate tasks, and two writers on the same field.
+
+### 9. The two things never built with a workflow rule today
+
+1. **Preventing a save.** Use a **validation rule**. A workflow rule runs after the record is committed
+   and can never reject anything.
+2. **New after-save automation.** Use a **record-triggered flow**. Workflow rules cannot be created, and
+   a flow is easier to version, test and reuse as a subflow.
+
+A third worth naming: **anything cross-object with logic**. Workflow rules can only update one related
+record field. Use a flow, and reach for Apex only when flow genuinely cannot do it.
+`,
+
+  '12.1': `
+### The Opportunity record page, top to bottom
+
+| # | Component | Properties |
+|---|---|---|
+| 1 | **Record Highlights Panel** | Amount, StageName, CloseDate, Next Step, and the Account name lookup. 5 fields, single row. |
+| 2 | **Accordion** | Single column, all sections collapsible |
+| 3 | ↳ **Tab "Details"** | — |
+| 4 | &nbsp;&nbsp;**Record Details** | Three groups: *Opportunity Details* (Name, Stage, Type, CloseDate, Next Step), *Commercials* (Amount, Discount_Percent__c, Credit Terms), *System* (CreatedDate, Owner, Record Type) |
+| 5 | ↳ **Tab "Related & Automation"** | — |
+| 6 | &nbsp;&nbsp;**Related Lists** | Opportunity Lines, Quote Requests, Discount Requests, Approval History. 10 rows per page. |
+| 7 | &nbsp;&nbsp;**Flow** | The Phase 9 credit-review flow, run **for this record** |
+| 8 | &nbsp;&nbsp;**Chart** | Phase 3 "Open Pipeline by Stage" report, filtered to this Account |
+| 9 | **Rich Text** | Stage guidance and exit criteria |
+| 10 | **Utility Bar** | Log a Call, New Task, Approvals, Notes and Files |
+
+### Why Highlights Panel and not Record Details
+
+The Highlights Panel pins a **small curated set at the top, above the fold, and visible while
+scrolling** — exactly what a manager needs on every visit: how much, at what stage, by when, and what
+happens next. Record Details is the full field set in sections, which is where the twenty fields that
+exist but rarely matter belong. Forty fields in Highlights pushes the page below the fold and defeats
+the component.
+
+### Related lists and the filter
+
+| Related list | Filter | Who it affects |
+|---|---|---|
+| Opportunity Lines | none | Reps need the full price build |
+| Quote Requests | \`Request_Status__c != "Expired"\` | Managers only care about live quotes; finance auditing history uses the full list view |
+| Discount Requests | none | An expired discount request is still a historical record worth seeing |
+| Approval History | none | The audit trail must be complete |
+
+The largest list is Quote Requests, because quotes grow over time and an unfiltered list runs to dozens
+of expired rows. Filtering Approval History or Discount Requests would be a mistake: both are the record
+of what was decided.
+
+### Activation
+
+- **Object:** Opportunity
+- **Record types:** **all** — New Business and Renewal
+- **Replaces the default page**
+
+All record types, because the manager's job does not change with deal type — value, stage, risk and next
+step are what every manager opens a record for. Splitting per record type doubles maintenance for no
+gain.
+
+### The two Quick Actions
+
+| Action | Behaviour |
+|---|---|
+| **Submit for Approval** | Launches the Phase 10 process. A Quick Action: one button, no input. |
+| **Log a Call** | Creates a Task, type Call, subject pre-filled with the Account name, related to the Opportunity, due now, assigned to the current user. |
+
+Both sit in the **record page header**, because they act *on this record*. Anything needed without
+opening a record — Create Quote from anywhere — belongs in the utility bar or as a **global action**.
+
+### Flow component rather than a Visualforce page
+
+- Runs the declarative Phase 9 flow **inline and natively** — no iframe, no Visualforce limits, no
+  controller class.
+- Renders properly on **mobile**, where Visualforce pages are second-class.
+- The logic lives in the flow, versioned and reusable as a subflow. In Visualforce it would live in
+  Apex and the page would be one more artifact to deploy.
+- App Builder replaced Visualforce pages and components for exactly this use case; a Visualforce page
+  here resists the platform rather than extending it.
+`,
+
+  '12.2': `
+### The two apps
+
+| | **Brightline Sales** | **Brightline Service** |
+|---|---|---|
+| Audience | Account executives, sales managers | Service agents, field technicians |
+| Navigation | Standard tabs | Standard tabs |
+| App profile | Internal | Internal |
+| Items | Accounts, Contacts, Leads, Opportunities (standard tabs); Pipeline (app page); My Day (app page); Quote Builder (Lightning page tab); Sales Reports (reports tab) | Cases, Assets__c (standard tabs); Service Queue (app page); Knowledge (standard tab); Service Reports (reports tab) |
+| Utility bar | Log a Call, New Task, Approvals, Notes and Files | Log a Call, New Task, Cases, Knowledge |
+
+The difference is **focus, not data**. Service users get no Opportunities tab at all — they do not need
+the pipeline, and hiding it removes both distraction and accidental edits.
+
+### Why the app profile matters
+
+It controls the **branding and the profile badge** in the navigation, and declares whether the app is
+for internal staff or external (Experience Cloud) users. Wrong, and an internal app looks customer-facing,
+confusing both staff and customers.
+
+### The utility bar, and the two that matter
+
+| Item | Priority | Reason |
+|---|---|---|
+| **Log a Call** | **Essential** | The daily action; one tap from any record |
+| **Approvals** | **Essential** | The daily queue; without it reps miss decisions |
+| New Task | Useful | General task creation |
+| Notes and Files | Useful | Reference material |
+
+The two essential items are the two whose absence stops work happening: you cannot log an activity, and
+you cannot see what needs your signature. Nobody will hunt through tabs for either.
+
+### Quote Pipeline: app page or Lightning page tab?
+
+**App page.** It is dashboard-like with no record behind it — charts and stage guidance — which is what
+an app page is for. A Lightning page tab is only justified when the page needs components an app page
+cannot host, or needs its own separate activation. Pipeline needs neither.
+
+### Who assigns the apps, and with what
+
+Users receive the apps through **permission sets** — \`Brightline_Sales_User\` and
+\`Brightline_Service_User\` — assigned by a system administrator.
+
+**Permission sets, not profiles.** Permission sets are additive and reviewable: you can see at a glance
+who has what. Profiles are monolithic, every change affects everyone in them, and a role model built on
+profiles is unmaintainable within months.
+
+### The five-step troubleshooting plan
+
+1. **Is the page activated, and for which record type?** Unactivated pages never appear; a page activated
+   for Enterprise does not apply to SMB.
+2. **Is the component's object in the user's permission set?** A missing object permission makes the
+   component error rather than hide.
+3. **Can the user see the records the component queries?** Check sharing rules and record access — the
+   most common cause of an empty component.
+4. **Is the app assigned at all?** Built is not assigned. Check the permission set is actually assigned.
+5. **Right org, right client?** A user viewing a sandbox page from production, or a stale mobile cache,
+   looks identical to a broken page.
+
+### The two mobile design decisions
+
+1. **Order for one column, not forty fields.** Highlights Panel and the single primary action come
+   first; everything else collapses into accordion sections. On desktop a manager can afford to scan; on
+   a phone in a warehouse they need the number and the next step immediately.
+2. **Cut the utility bar to two items.** Log a Call and Approvals stay. New Task moves into the action
+   menu, Notes and Files into the record panel. Six utility bar items show four on a phone.
+`,
+
+  '12.3': `
+### 1. The four Lightning pages
+
+**P1 — Opportunity record page (record page)**
+
+| # | Component | Properties |
+|---|---|---|
+| 1 | Record Highlights Panel | Amount, StageName, CloseDate, Next Step, Account |
+| 2 | Accordion | Single column, collapsible |
+| 3 | ↳ Tab "Details" → Record Details | Groups: Opportunity Details, Commercials, System |
+| 4 | ↳ Tab "Activity" → Related Lists | Lines, Quote Requests (\`Request_Status__c != "Expired"\`), Discount Requests, Approval History |
+| 5 | ↳ Flow component | Phase 9 credit review, run **for this record** |
+| 6 | ↳ Chart | Phase 3 pipeline report, filtered to this Account |
+| 7 | Rich Text | Stage guidance and exit criteria |
+| 8 | Utility Bar | Log a Call, New Task, Approvals, Notes and Files |
+
+**Activation:** Opportunity, **all record types**, replace the default page.
+
+**P2 — Pipeline dashboard (app page)**
+
+| # | Component | Properties |
+|---|---|---|
+| 1 | Dashboard | Phase 3 "Sales Pipeline" |
+| 2 | Chart | Phase 3 pipeline by stage, this user's own deals |
+| 3 | Report | Open Opportunities past close date |
+| 4 | Rich Text | How to read these numbers; what each colour means |
+| 5 | Flow | Phase 9 "flag stale opportunities", run for this user |
+
+**Activation:** automatic; appears in Brightline Sales as **Pipeline**.
+
+**P3 — Quote Builder (Lightning page tab)**
+
+| # | Component | Properties |
+|---|---|---|
+| 1 | Record Highlights Panel | Quote number, Account, Total_Value__c roll-up, status |
+| 2 | Flow (screen flow) | Quote-building flow: pick Account, then add lines |
+| 3 | Flow (screen flow) | Add a line: Product lookup, Quantity, Unit Price |
+| 4 | Related List — Single | Quote_Line__c with a filter bar |
+| 5 | Record Action | Submit for Approval (Phase 10) |
+| 6 | Rich Text | Pricing rules and discount authority |
+
+**Activation:** automatic on creation. Must be added as a nav item in Brightline Sales.
+
+**P4 — My Day (app page)**
+
+| # | Component | Properties |
+|---|---|---|
+| 1 | Related Lists | Tasks due today, current user |
+| 2 | Related Lists | Approvals pending on the user's records |
+| 3 | Flow | Phase 9 "expire stale quotes" — shows what it swept today |
+| 4 | Rich Text | Start here |
+
+**Activation:** automatic, in the Brightline Sales app.
+
+### 2. Related list filters, and who each affects
+
+| Page | Related list | Filter | Affected |
+|---|---|---|---|
+| P1 | Quote Requests | \`Request_Status__c != "Expired"\` | Managers see only live quotes; finance auditing history uses the full list view |
+| P1 | Opportunity Lines | none | Reps need the full price build |
+| P1 | Approval History | none | The audit trail must stay complete |
+| P3 | Quote Lines | none | All lines are part of the quote being built |
+| P4 | Tasks due today | \`ActivityDate = TODAY(), IsClosed = FALSE\` | Each user sees **only their own** |
+| P4 | Pending approvals | status not Final Approved | Reps stop chasing decisions already made |
+
+Filtering Approval History or Quote Lines would be a mistake: both are the record of what was decided and
+what was quoted, and a filtered audit trail is worse than none.
+
+### 3. Activation summary
+
+| Page | Object | Record types | Replaces default? |
+|---|---|---|---|
+| P1 Opportunity | Opportunity | All | **Yes** |
+| P2 Pipeline | — | n/a | n/a, automatic |
+| P3 Quote Builder | — | n/a | n/a, automatic |
+| P4 My Day | — | n/a | n/a, automatic |
+
+Only P1 needs explicit activation, because only a record page competes with an existing page.
+
+### 4. The actions
+
+| Action | Type | Why this type |
+|---|---|---|
+| **Submit for Approval** | Quick Action | Launches the Phase 10 process. One button, no input — no reason for a screen flow |
+| **Log a Call** | Quick Action | Creates a Task with a pre-filled subject. One record, no logic |
+| **Mark as Competitor Lost** | Quick Action | Sets two fields plus a formula date. Still no branching |
+| **Build a Quote** | **Screen flow** | Needs the Account, then creates Quote_Request__c, then loops over lines. Real logic and a loop — a Quick Action cannot do it |
+
+The dividing line: **Quick Action for creating or updating one record with known values; screen flow
+whenever there is a decision, a loop, or more than one record to create.**
+
+### 5. Why "Quote Builder" is a Lightning page tab
+
+An app page would not do, because the page must:
+
+1. Host **Flow components with parameters** — the flow needs the Quote_Request__c Id to add lines, and
+   an app page has no record context to bind that to.
+2. Carry its **own record actions**, so "Submit for Approval" appears in its header rather than the
+   object's page header.
+3. Support create-then-edit: a rep lands on a blank page, the flow creates the quote, then the same page
+   edits it.
+
+A standard tab cannot host components at all, and a record page would require a record to exist before
+the user could build one. The Lightning page tab is the only one of the three that fits.
+
+### 6. The permission set
+
+**\`Brightline_Sales_User\`**
+
+| Grant | Detail |
+|---|---|
+| Object permissions | Read/Edit on Account, Contact, Lead, Opportunity; Read/Create/Edit on Quote_Request__c, Quote_Line__c, Discount_Request__c; Read on Product__c |
+| **App permissions** | **Brightline Sales** |
+| **Tab visibility** | Accounts, Contacts, Leads, Opportunities, Quote Builder, Pipeline, My Day, Sales Reports |
+| **Record types** | All Account, Opportunity and Quote_Request__c types |
+| Fields | Read on all; Edit on \`Next_Step__c\`, \`Credit_Terms__c\`, \`Request_Status__c\` |
+| Flows | Read/run on the five Phase 9 sales flows |
+| Apex | **none** — the whole design is declarative |
+| Sharing | granted by **sharing rules** (Phase 2), not the permission set |
+
+A second set, \`Brightline_Service_User\`, mirrors it with Cases and Assets__c and the Brightline Service
+app — and deliberately omits Opportunity access.
+
+### 7. Mobile plan
+
+**What stays, in order:**
+
+1. Highlights Panel — Amount, Stage, CloseDate. Compact: 3 fields, not 5.
+2. One primary action in the header — Log a Call.
+3. Accordion sections for everything else, **collapsed by default**, so the first screen is 3 fields and
+   one button.
+
+**What moves:**
+
+- Related Lists → into the record panel, below the sections, not on the landing screen.
+- Utility Bar → **two items only**. New Task into the action menu; Notes and Files into the record panel.
+
+**What is deliberately dropped on mobile:**
+
+- The Chart and Dashboard components on P1 and P2. Nobody reads a pipeline chart on a phone; they tap
+  through to the report.
+- **P3's multi-line editing.** Building a quote on a phone is error-prone; mobile shows the quote
+  read-only and links back to desktop. This is the one genuine functional reduction, and it is deliberate.
+
+**Why mobile is not a shrunk desktop:** a phone in a warehouse needs the number and the next action in two
+seconds. Forty fields and six utility bar items serve nobody there.
+
+### 8. Troubleshooting decision tree
+
+**"The page looks wrong or empty for one user"**
+
+\`\`\`
+Page not visible at all?
+├─ YES -> Is it a record page?
+│   ├─ Not activated -> Activate it.
+│   └─ Activated for another record type -> Activate for this type too.
+│        └─ Or object permissions are missing -> check the permission set.
+└─ NO (page loads) -> Which part is wrong?
+   ├─ One component blank / "No records"
+   │   ├─ Other users see it? -> permissions. Check object perms.
+   │   └─ Only this user sees blank? -> sharing. Check child record access.
+   ├─ Component shows an error icon
+   │   └─ Missing object or field permission -> permission set.
+   ├─ Flow component does nothing
+   │   ├─ Flow inactive in this org? -> activate it.
+   │   ├─ Entry condition did not match? -> check the guard (often ISCHANGED).
+   │   └─ No read access to the source record? -> sharing.
+   ├─ Layout wrong for everyone
+   │   └─ Another page is active for this record type, or a deployment
+   │      overwrote without reactivating -> check activation per type.
+   └─ Right on desktop, wrong on mobile
+        └─ Stale mobile cache -> refresh, or check mobile behaviour.
+\`\`\`
+`,
+
+  '13.1': `
+### The six decisions
+
+| Need | Tool | Reason |
+|---|---|---|
+| R1 | **RECORD TYPE + LAYOUT** | The difference is structural *by category*, which is what record types exist for. Layering dynamic forms on top of per-type layouts is duplicate work for the same effect. |
+| R2 | **DYNAMIC FORM** | The condition is a field value on this record. A page layout cannot evaluate another field's value — that is the gap dynamic forms fill. |
+| R3 | **VALIDATION RULE** | It must *block a save*. A dynamic form is presentation only, with no conditional requiredness. |
+| R4 | **DYNAMIC FORM** | The condition is the current user and their permissions, which a layout cannot see. |
+| R5 | **SCREEN FLOW** | Multi-step with branching plus record creation. A dynamic form has no wizard behaviour and cannot create a record. |
+| R6 | **LIGHTNING PAGE** | A dynamic form is a component *inside* a page. Hosting it alongside other components needs the page itself. |
+
+### Why R3 cannot be a dynamic form
+
+R3 requires that the record **cannot be saved** unless the notes field is filled. A dynamic form decides
+what is *shown*; it has no requiredness setting and no ability to reject a save. The mechanism is a
+validation rule:
+
+\`\`\`
+AND(ISPICKVAL(StageName), Discount_Percent__c > 15, ISBLANK(Authority_Notes__c))
+// "A discount above 15% requires the approver name and reason before it can be saved."
+\`\`\`
+
+Because that rule needs a field, the field must stay **visible** whenever the rule can fire — which is
+exactly the audit in 13.3.
+`,
+
+  '13.2': `
+### The five sections
+
+| Section | Fields | Guidance text | Visibility rule |
+|---|---|---|---|
+| **S1 Opportunity Details** | Name, StageName, Type, CloseDate, Next Step, Account | none — the labels speak for themselves | **none** (always visible) |
+| **S2 Commercials** | Amount, Discount_Percent__c, Credit_Terms__c, Pricebook2 | "Commercial terms lock once the quote is approved." | \`OR(RecordType = "Enterprise", Amount > 100000)\` |
+| **S3 Discount Authority** | Approver__c, Authority_Notes__c | "Above 15% needs Finance sign-off. Record the approver and the reason before submitting." | \`Discount_Percent__c > 15\` |
+| **S4 Margin** | Cost_Margin__c, Margin_Percent__c | "Internal only. Never discuss margin with the customer." | Current user has the **Brightline_Finance_User** permission set |
+| **S5 Next Steps** | Next_Step__c, Next_Step_Date__c | "What happens next, and by when." | \`NOT(OR(StageName = "Closed Won", StageName = "Closed Lost"))\` |
+
+### Why S1 carries no rule
+
+A section with no rule is always visible and needs no maintenance. Adding a condition like
+\`OR(ISNEW(), ISCHANGED(StageName))\` to a section that should always show is noise that will eventually
+be wrong.
+
+### Combination logic for S2
+
+**OR**, because each condition alone is a legitimate reason to see commercial terms:
+
+- An **Enterprise** account is commercially complex regardless of size — its terms are custom even on a
+  small deal.
+- A deal over **100000** is materially large regardless of account type.
+
+With **AND**, both cases break: an SMB account at 150k would not see its own commercial terms, and an
+Enterprise account at 50k would not either. That is the failure mode that makes a form feel broken.
+
+### The permission sets
+
+| Set | What it unlocks |
+|---|---|
+| \`Brightline_Sales_User\` | The S1, S2, S3 and S5 fields, plus edit access |
+| \`Brightline_Finance_User\` | \`Cost_Margin__c\` and \`Margin_Percent__c\` in S4 |
+
+**The field that errors without them: \`Cost_Margin__c\`.** It is a finance-only field. Without field-level
+security the dynamic form renders it for everyone, and because the user has no read access it produces a
+**component error**, not a clean hide. The S4 rule hides the section for non-finance users, which covers
+it — but if that rule is ever removed without adding FLS, the page breaks for every rep.
+
+Field-level security is the backstop that stops a form mistake becoming an error.
+
+### Instructional text placement
+
+A section-level **instructional text** block above S3:
+
+> **Discount policy.** Up to 15% is the rep's decision. Above 15%, record the approver and the business
+> reason. Finance approval is required before the quote can be submitted.
+
+**Instructional, not guidance**, because it is a *rule about the whole form* rather than an explanation
+of one section. Guidance text lives inside S3 and disappears when S3 is hidden — so a rep sitting on a
+10% discount would never see it, which is exactly when they most need the reminder of what happens at
+16%. Instructional text stays on screen.
+`,
+
+  '13.3': `
+### 1. The five sections
+
+| Section | Fields | Guidance text | Visibility rule |
+|---|---|---|---|
+| **S1 Opportunity Details** | Name, StageName, Type, CloseDate, Next Step, Account | — | none (always visible) |
+| **S2 Commercials** | Amount, Discount_Percent__c, Credit_Terms__c, Pricebook2 | "Commercial terms lock once the quote is approved." | \`OR(RecordType = "Enterprise", Amount > 100000)\` |
+| **S3 Discount Authority** | Approver__c, Authority_Notes__c | "Above 15% needs Finance sign-off. Record the approver and the reason before submitting." | \`Discount_Percent__c > 15\` — **on a field value** |
+| **S4 Margin** | Cost_Margin__c, Margin_Percent__c | "Internal only. Never discuss margin with the customer." | Current user has \`Brightline_Finance_User\` — **on the current user** |
+| **S5 Next Steps** | Next_Step__c, Next_Step_Date__c | "What happens next, and by when." | \`NOT(OR(StageName = "Closed Won", StageName = "Closed Lost"))\` — **on a picklist value** |
+
+Required coverage: S4 is the **current user** rule, S5 is the **picklist value** rule.
+
+### 2. Instructional text, and why not guidance
+
+**Instructional text block, above S3:**
+
+> **Discount policy.** Up to 15% is the rep's decision. Above 15%, record the approver and the business
+> reason; Finance approval is required before the quote can be submitted.
+
+It is **instructional** rather than guidance because it is a **rule that applies to the whole form**, not
+an explanation of one section. Guidance text belongs inside S3 and vanishes when S3 is hidden — so a rep
+on a 10% discount would never see it, which is precisely when they most need to know what happens at
+16%. Instructional text stays on screen at all times.
+
+### 3. Component order, with reasons
+
+| Position | Component | Why there |
+|---|---|---|
+| 1 | **Record Highlights Panel** (Amount, Stage, CloseDate, Next Step, Account) | Identifies the record before any scrolling — the five fields that answer "which deal, how big, what stage" at a glance. |
+| 2 | **Instructional text** | One line of policy at the top, before the user invests effort. Short enough not to push the form down. |
+| 3 | **Dynamic Form** (S1–S5) | The main work area, centred, ordered to match the business process: identity → commercials → authority → margin → next steps. |
+| 4 | **Related List — Single**: Quote Requests, filtered to non-expired | Context needed *while* editing commercials — have we already quoted this? Above the form it would push the work area down for something used occasionally. |
+| 5 | **Related List — Single**: Approval History | Reference rather than working context, so it sits lower. |
+| 6 | **Flow component**: the Phase 9 credit-review flow | Secondary logic, below the fold — a consequence of the data, not part of entering it. |
+| 7 | **Rich Text**: stage guidance and exit criteria | Purely reference. At the bottom so it never competes with the form. |
+
+The principle: **identify → instruct → work → context → actions → reference.** Anything needed *while*
+working belongs near the form; anything looked up *later* belongs below it.
+
+### 4. The two permission sets and the failing field
+
+| Set | Grants |
+|---|---|
+| \`Brightline_Sales_User\` | Edit on Account, Contact, Opportunity; Read/Create/Edit on Quote_Request__c, Quote_Line__c, Discount_Request__c; app Brightline Sales; all Opportunity record types; Edit on \`Next_Step__c\`, \`Credit_Terms__c\`, \`Discount_Percent__c\` |
+| \`Brightline_Finance_User\` | Read/Edit on \`Cost_Margin__c\`, \`Margin_Percent__c\`; **Create** on Discount_Request__c; app Brightline Finance |
+
+**The field that errors without the finance set: \`Cost_Margin__c\`.** Without field-level security the
+S4 rule still hides the section for reps, so it is covered — but if that rule is ever removed the
+component renders a field reps cannot read and throws a component error instead of hiding cleanly. FLS is
+the backstop that turns a form mistake into a permission problem instead of a broken page.
+
+### 5. The Phase 7 rule-by-rule visibility audit
+
+| Rule | Condition | Fields it needs | Visible when it can fire? |
+|---|---|---|---|
+| V4 | \`StageName = "Closed Won" && CloseDate < TODAY()\` | StageName, CloseDate | **Yes** — both in S1, always visible. No action needed. |
+| High-value quote approval | \`Total_Value__c > 250000\` | none on Opportunity | n/a — the rule is on Quote_Request__c |
+| Inactive Account with open Opportunities | \`Account_Status__c = "Inactive" && Open_Opportunity_Count__c > 0\` | none on Opportunity | n/a — cross-object rule |
+| Discount authority | \`Discount_Percent__c > 15 && ISBLANK(Authority_Notes__c)\` | Discount_Percent__c, Authority_Notes__c | **Yes** — Discount_Percent__c is in S2 and S3; Authority_Notes__c is in S3, which shows on exactly the same condition. **The pairing is deliberate.** |
+| Closed-deal hygiene | \`AND(ISPICKVAL(StageName), StageName = "Closed Won", ISBLANK(Next_Step__c))\` | StageName, Next_Step__c | **At risk.** S5 hides Next_Step__c once the stage is Closed Won — exactly when the rule fires. **Fix:** move \`Next_Step__c\` into S1, or require it on Closed Lost only. |
+
+That last row is the point of the audit. Without it, a rep who closes a deal gets a save error about a
+field that has just vanished from their screen.
+
+### 6. Where "Submit for Approval" lives
+
+In the **record page header as a Quick Action**, outside the dynamic form.
+
+A dynamic form is a *presentation layer for fields*. Putting a submit action inside it invites two
+mistakes: forms get rebuilt often, and the action would be lost or duplicated each time. The header is
+stable, survives layout changes, and is where users already look. It also keeps the form focused on data
+entry, with submission as a deliberate separate step — matching Phase 10, where submitting starts a
+process rather than saving a record.
+
+### 7. Test plan
+
+| Persona | Scenario | Must verify |
+|---|---|---|
+| **Sales rep** | New Opportunity, SMB, 50k, no discount | S1 + S5 only. S2 hidden (SMB, under 100k). No margin fields, no component errors. Saves. |
+| **Sales rep** | Same Opportunity, discount raised to 20% | S2 and S3 appear. Saving without Authority_Notes__c → rule rejects with a clear message. Both fields visible, so the user can satisfy it. |
+| **Sales manager** | Enterprise Opportunity, 150k | S1, S2, S5. Same fields as a rep plus anything manager-specific. No Finance-only section. |
+| **Finance user** | Any Opportunity | S4 Margin visible. Can read and edit Cost_Margin__c. No errors anywhere. |
+| **Read-only auditor** | Enterprise Opportunity at Closed Won | S5 hidden. Fields visible but read-only. Nothing to save — confirms the page forces no edit and no rule blocks the view. |
+| **Mobile user** | Create a new Opportunity, set discount above 15% | Sections stack in order, S3 reachable by scrolling, no horizontal scroll, save works. |
+| **Empty record** | Brand-new Opportunity, every field blank | No rule misfires on blanks — where \`OR(RecordType = "Enterprise", Amount > 100000)\` can behave differently from expectation. |
+
+### 8. The two failure modes designed against
+
+**A. Hidden field, live validation rule.** The S5 / closed-deal-hygiene pairing above. The user clicks
+save and gets \`Next Step is required\` for a field that has just disappeared from the screen.
+
+*What the user sees:* an error naming a field they cannot find, with no indication where it went.
+
+*Design response:* every conditionally-required field stays visible in the section whose rule can fire it,
+or moves to an always-visible section. The audit in section 5 exists to catch exactly this.
+
+**B. Field-level security behind a form rule.** S4 relies on a *rule* to hide Margin fields from reps. If
+the rule is removed, edited, or overridden by a later page change, reps get a component error instead of
+a hidden section — and the page looks broken for everyone without the finance set.
+
+*What the user sees:* a red component error banner on the Opportunity page, for a subset of users, with
+no explanation.
+
+*Design response:* FLS is the real control; the form rule is only presentation. Belt and braces — S4's
+rule for tidiness, FLS for correctness.
+`,
+
+  '14.1': `
+### The three primary tabs
+
+| Primary tab | Why it earns a place |
+|---|---|
+| **Leads** | Inbound work with nothing downstream yet. It is a queue, not a record to work in context. |
+| **Opportunities** | The main object. Everything else in the app hangs off it. |
+| **Quotes** | Where reps actually spend their day once an Opportunity qualifies. |
+
+**Left out: Accounts and Contacts.** Neither is a place reps *work* — they are context for the
+Opportunity. Putting an Account in the primary bar means clicking to it, which replaces the main pane
+and loses the deal the rep was in the middle of. That is exactly what the console exists to prevent.
+Contacts are worse still: a rep looks up a contact occasionally, so they belong in a secondary pane.
+
+**Why not three secondary tabs under one parent:** a secondary tab set has a **single parent record**.
+A Lead, an Opportunity and a Quote Request have no common parent, so there is nothing for them to sit
+beside. Secondary tabs answer "show me this record's neighbours", not "let me switch between unrelated
+records".
+
+### Opportunity's secondary tabs
+
+| Secondary tab | Pane | Why |
+|---|---|---|
+| **Account** | **Split pane** | Parent left, Account right. Read together — one level of context, and a wide single column each. |
+| **Quote Requests** | **Three pane** | Parent left, quote list centre, selected quote right. This is a genuine pick-two-then-inspect workflow: the list is useless without the record and the record is unreadable without the list. |
+| **Contacts** | **Split pane** | Parent left, contacts right. Context, not work. A split pane is enough; a three-pane layout would leave the middle column too narrow to read. |
+
+**Related lists stay as subtabs, not panes.** Contacts, Opportunities and Activities on the Account pane
+are *context for one record*, and a subtab swaps content within the pane without stealing width from the
+parent. Promoting them to panes would give three panes of equal width on a laptop screen.
+
+### Pinned by default
+
+**Quote Requests**, and **Tasks** inside it. The queue is where the day's work is, so it should survive
+navigation. Accounts are not pinned: they are reached through the Opportunity, so a pinned Account tab
+sits there unused.
+
+**What pinning changes:** the tab stays visible in the tab bar. **What it does not:** grant any record
+access. A pinned Opportunities tab shows a rep only the Opportunities their **sharing** allows — pinning
+is a convenience, and treating it as an access control is a security misunderstanding.
+`,
+
+  '14.2': `
+### The navigation plan
+
+| Item | Type | Hosts |
+|---|---|---|
+| Opportunities | **Standard object tab** | The built-in list views; the Phase 13 record page on activation |
+| Accounts | **Standard object tab** | Customer list and record pages |
+| Contacts | **Standard object tab** | Contact list and record pages |
+| Leads | **Standard object tab** | Inbound queue |
+| Quote Builder | **Lightning page tab** | The Phase 12 page hosting the quote flow |
+| Pipeline | **App page** | Stage-funnel chart and overdue-next-steps list. No record behind it |
+| My Day | **App page** | Tasks, events and approvals for the current user |
+| Sales Reports | **Report tab** | The Phase 3 report folder |
+
+### What moves to the utility bar
+
+| Item | Why it is an action, not a destination |
+|---|---|
+| **Log a Call** | Creates a Task on whatever record is open. It works *on* a record rather than going somewhere. |
+| **New Task** | Same — a recurring action with a known target. |
+| **Notes and Files** | Attaches to the current record. Same position on every record page. |
+
+The test that separates them: a **navigation item** is a place the user decides to go; a **utility bar
+item** is something the user decides to do. "Log a Call" is not a place. Trying to put it in the nav
+means giving reps a tab that creates a task, which is odd and easy to mis-click.
+
+### Workspace folders
+
+| Folder | Items |
+|---|---|
+| **SELL** | Leads, Accounts, Contacts, Opportunities |
+| **QUOTE** | Quote Builder, My Day |
+| **REPORT** | Sales Reports |
+
+The failure this solves is tab sprawl. Eight undifferentiated tabs is survivable; twenty is not, and the
+answer people reach for is a useless app launcher search. Folders group by **job of work**, which is how
+reps already think: find a customer, build a quote, check the numbers.
+
+Grouping is **presentation**. Moving Cases into a folder does not hide them from anyone who already had
+access — only the permission set decides that.
+
+### The deliberate exclusion
+
+**Cases.** Brightline already has a **Brightline Service** app from Phase 12. Adding Cases to the Sales
+app would put a tab in front of reps who have no Case permissions, so it would render empty or error —
+a worse experience than no tab at all.
+
+**What would justify adding it back:** if sales genuinely triaged Cases (handling a pre-sales technical
+query, escalating an urgent one). Then the honest answer is a **Case secondary tab on the Opportunity**,
+because that is where the case is related — not a top-level Cases tab that implies ownership they do
+not have.
+`,
+
+  '14.3': `
+### 1. Console tab set
+
+| Primary tab | Secondary tabs | Pane | Justification |
+|---|---|---|---|
+| **Opportunities** | Account | **Split** | Parent and Account are read side by side. One level of context, and each deserves half the width |
+| | Quote Requests | **Three** | List then record — the list is unreadable alone and the record is unreadable without the list |
+| | Contacts | **Split** | Context, not work. A three-pane layout would squeeze all three columns |
+| **Quotes** | Opportunity | **Split** | The quote's commercial parent, read together with the lines |
+| | Approval History | **Split** | The audit trail, beside the decision |
+| **Leads** | Company | **Split** | One level of context on an inbound record |
+
+**Subtabs inside the Account pane:** Contacts, Opportunities, Activity — because they are context *for
+one record*, and a subtab swaps content without stealing width from the parent.
+
+### 2. Pinned by default
+
+**Quote Requests** and **Tasks**. The quote queue is the day's work, and Tasks is what the rep checks
+first thing.
+
+Pinning changes **what stays in the tab bar**. It changes nothing about who can see a record — that is
+**sharing** and object permissions (Phase 2). A rep with a pinned Opportunities tab sees only the
+Opportunities their sharing allows. Treating pinning as an access control is the misunderstanding to
+avoid.
+
+### 3. Navigation plan
+
+| Item | Type | Folder |
+|---|---|---|
+| Opportunities | Standard object tab | SELL |
+| Accounts | Standard object tab | SELL |
+| Contacts | Standard object tab | SELL |
+| Leads | Standard object tab | SELL |
+| Quote Builder | Lightning page tab | QUOTE |
+| My Day | App page | QUOTE |
+| Pipeline | App page | SELL |
+| Sales Reports | Report tab | REPORT |
+| **Cases** | **Excluded** | — |
+
+**Why Cases is excluded:** they live in the **Brightline Service** app. A Cases tab here would be a
+destination reps cannot use. The condition for adding it back is reps genuinely **triaging** cases — and
+then it belongs as a **secondary tab on the Opportunity**, not a top-level tab implying ownership.
+
+### 4. Utility bar specification
+
+| Item | Target |
+|---|---|
+| **Log a Call** | Creates a Task, Related To = current record, ActivityDate = today, assigned to the current user |
+| **New Task** | Same target, blank subject |
+| **Notes and Files** | The current record's panel |
+
+Every one is an **action on whatever record is open**, which is why none of them belongs in navigation.
+A navigation item is a place to go; these are things to do.
+
+### 5. The theme
+
+| Setting | Value |
+|---|---|
+| **Logo** | Brightline wordmark, SVG or transparent PNG, sized for the header |
+| **Palette** | Brand navy for the header, a single accent for links and buttons, and a **semantic pair** — red for blocked, green for approved |
+| **Font** | One family throughout; the theme does not mix typefaces |
+| **Text treatment 1: lookup fields** | Lookup values in the accent color, so a field the rep cannot edit inline is obvious at a glance |
+| **Text treatment 2: encrypted fields** | Distinct color for encrypted values, so stored card data is recognisable without being read |
+
+The text treatments are the part worth knowing. They are a **safety** feature disguised as styling: a
+rep scanning an approval layout spots the red encrypted field immediately, and a lookup that renders
+differently from an editable field removes a whole category of "why won't it save".
+
+### 6. The branding set
+
+| Element | Value |
+|---|---|
+| **Name** | Brightline Branding |
+| **Applies to** | Login page, app launcher tile, and the **mobile app** |
+| **Scope** | Assigned to the Brightline apps — **not** org-wide |
+
+**Not org-wide**, because Salesforce Service and the partner site need their own treatment. An
+org-wide default would have to be generic, and generic branding is the failure mode of most orgs: the
+logo everyone ignores.
+
+### 7. Theme vs branding set vs My Domain
+
+A **theme** changes how pages look *inside* an app — logo, colours, font, text treatments — and is
+assigned by app, tab, app page or record type.
+
+A **branding set** changes how the app looks *from the outside*: the app frame, the login page, and the
+mobile app, either org-wide or per app.
+
+**My Domain** is none of these. It is the org's web address (\`brightline.my.salesforce.com\`), used in
+URLs, email templates and shared links. Changing it restyles nothing and grants nothing. There is one
+My Domain per org; other custom domains are separate registrations for specific purposes.
+
+### 8. Staged rollout
+
+| Stage | What happens | Verified by | Stop condition |
+|---|---|---|---|
+| **1. Sandbox** | Everything built by declaration: tab set, app, nav, theme, branding set, permission sets | Each persona logs in and walks a full deal: lead → opportunity → quote → approval | Any persona cannot complete the walkthrough |
+| **2. Pilot (5 reps)** | Console app plus theme; Classic still the fallback | Reps work a **real week**; log where they clicked out to Classic | More than a handful of daily click-outs to Classic — that means the console is missing something, not that reps are stubborn |
+| **3. Manager rollout** | Plus Pipeline and reports; managers see the reporting app | Managers build their own saved views and dashboards | Reports do not match the numbers from the legacy reports |
+| **4. Full sales** | Brightline Sales is default; Classic access withdrawn | Support sees no navigation questions in week one | Any Classic-only workflow still relied upon |
+| **5. Service** | Brightline Service app to the service team | — | — |
+
+**The stop condition at each stage is a signal to fix the design, not to push harder.** A rollout that
+survives on users quietly falling back to Classic is not a rollout.
+
+### 9. The Classic users
+
+Salesforce keeps Classic available, so nothing breaks on day one — but a console app is **Lightning-only**
+and cannot render in Classic, so those users get the standard Lightning experience, which will feel
+different from the Classic pages they know.
+
+Three concrete steps:
+
+1. **Do not withdraw Classic on day one.** Pilot users need somewhere to fall back to, and comparing the
+   two is how you find the gaps.
+2. **Keep the Classic record pages usable** for the pilot period. Classic layouts are separate
+   configuration from Lightning record pages, so Phase 12's page work does not disturb them.
+3. **Name a Classic owner.** Usually one power user per team who fields "where did that tab go" — and who
+   reports which tabs are missing from the console. That feedback list is the real backlog for stage 2.
+
+Withdraw Classic access at stage 4, and only once the Classic-only workflows have been listed and
+either rebuilt or consciously dropped.
+`
+},
+'15.1': **When to use unlocked vs unmanaged packages**
+
+**Unlocked package**
+- Best for internal, modular development where you want to reuse components across multiple projects or orgs
+- Upgradeable, so you can push updates without manually re-deploying everything
+- Good when building a shared library of metadata (e.g. common objects, flows) inside your company
+- No IP locking — appropriate for internal teams
+
+**Unmanaged package**
+- Best for one-time distribution, templates, or moving configuration between orgs without upgrade path
+- Not upgradeable; installing a new version overwrites/creates as-is
+- Good for open-source or exploratory work
+- Simpler when you just need to bundle and share metadata once
+
+**Rule of thumb:** Use **unlocked** if you expect to evolve and upgrade the package over time internally. Use **unmanaged** if it's a one-off transfer with no future upgrades planned.,
+
+**Unlocked package**
+- Best for internal, modular development where you want to reuse components across multiple projects or orgs
+- Upgradeable, so you can push updates without manually re-deploying everything
+- Good when building a shared library of metadata (e.g. common objects, flows) inside your company
+- No IP locking — appropriate for internal teams
+
+**Unmanaged package**
+- Best for one-time distribution, templates, or moving configuration between orgs without upgrade path
+- Not upgradeable; installing a new version overwrites/creates as-is
+- Good for open-source or exploratory work
+- Simpler when you just need to bundle and share metadata once
+
+**Rule of thumb:** Use **unlocked** if you expect to evolve and upgrade the package over time internally. Use **unmanaged** if it's a one-off transfer with no future upgrades planned.,
+'15.2': **Interpreting a simple package.xml**
+
+Given:
+`xml
+<?xml version="1.0" encoding="UTF-8"?>
+<Package xmlns="http://soap.sforce.com/2006/04/metadata">
+  <types>
+    <members>Brightline_Sales_User</members>
+    <name>PermissionSet</name>
+  </types>
+  <version>58.0</version>
+</Package>
+`
+
+**What this means:**
+- This manifest targets API version 58.0
+- It includes the PermissionSet component named "Brightline_Sales_User"
+- When retrieved, it pulls that specific permission set's metadata; when deployed, it deploys just that permission set
+- The <types> section groups components by metadata type; you can have multiple <types> blocks for different metadata types.,
+'15.3': **Determining if a change needs destructive changes**
+
+**Needs destructive changes:**
+- Deleting a metadata component entirely (e.g. removing a custom field, object, record type, or flow) — a normal deploy cannot delete components
+- Renaming in a way that requires removal of old component name (sometimes handled differently; best practice is to consider destructive for the old name)
+- Cleaning up obsolete components no longer referenced
+
+**Does NOT need destructive changes (normal deploy is fine):**
+- Adding new components (fields, objects, flows, etc.)
+- Updating field labels, descriptions, formulas, or properties
+- Activating/deactivating flows or changing versions
+- Modifying page layouts, record types, validation rules
+
+**Key point:** Any operation that **removes** metadata from the target org requires a **destructiveChanges.xml** (validated in sandbox first). Normal deployments are additive/updates only.,
+
+};

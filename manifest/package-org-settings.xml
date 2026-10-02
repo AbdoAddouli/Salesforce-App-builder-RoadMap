@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<!--
+    Org-level configuration touched in the App Builder guide.
+
+    These settings cannot live in a package directory and are edited in Setup;
+    the App Builder exam DOES test several of them, so they get their own
+    manifest and their own guide chapter:
+
+      OwdSettings            — org-wide default internal/external sharing
+      SharingSettings        — Experience Site + guest sharing behaviour
+      UserInterfaceSettings  — Dynamic Forms, Lightning App Builder, console behaviour
+      ApexSettings           — CPU limit, debug levels, code coverage thresholds
+      SecuritySettings       — password policies, session settings
+      SearchSettings         — which objects are searchable, fuzzy/SOSL behaviour
+      MobileSettings         — mobile offline behaviour (frequently tested)
+      CustomSetting          — named app settings
+      Network                — Salesforce Sites / Communities
+-->
+<Package xmlns="http://soap.sforce.com/2006/04/metadata">
+    <types>
+        <members>*</members>
+        <name>OwdSettings</name>
+    </types>
+    <types>
+        <members>Settings</members>
+        <name>SharingSettings</name>
+    </types>
+    <types>
+        <members>Settings</members>
+        <name>UserInterfaceSettings</name>
+    </types>
+    <types>
+        <members>Settings</members>
+        <name>ApexSettings</name>
+    </types>
+    <types>
+        <members>Settings</members>
+        <name>SecuritySettings</name>
+    </types>
+    <types>
+        <members>Settings</members>
+        <name>SearchSettings</name>
+    </types>
+    <types>
+        <members>Settings</members>
+        <name>MobileSettings</name>
+    </types>
+    <types>
+        <members>*</members>
+        <name>CustomSetting</name>
+    </types>
+    <types>
+        <members>*</members>
+        <name>Network</name>
+    </types>
+    <version>68.0</version>
+</Package>

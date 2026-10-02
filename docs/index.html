@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Platform App Builder Academy - Learn Salesforce Declarative Development</title>
+  <meta name="description" content="Interactive, self-paced course: 17 modules covering the full Salesforce Certified Platform App Builder blueprint - data modelling, security, business logic &amp; process automation, user interface, reporting and app deployment." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#9745;</text></svg>" />
+  <link rel="stylesheet" href="assets/style.css" />
+  <script>
+    /* Runs before first paint so the page never flashes the wrong theme.
+       The key MUST match THEME_KEY in app.js: GitHub Pages serves every site
+       on one shared *.github.io origin, so an un-namespaced key would hand this
+       site the other academy's saved theme. */
+    (function() {
+      var t = null;
+      try { t = localStorage.getItem('pab-academy-theme'); } catch (e) { /* private mode */ }
+      if (!t) t = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+</head>
+<body>
+
+  <div class="shell">
+
+    <aside class="sidebar">
+      <!-- filled by app.js -->
+    </aside>
+
+    <div class="content">
+
+      <header class="topbar">
+        <button class="menu-btn" id="menuBtn" aria-label="Menu">&#9776;</button>
+        <a class="brand" href="#/">
+          <span class="logo">&#9745;</span>
+          <span class="brand-text">
+            <b>Platform App Builder</b><small>Academy</small>
+          </span>
+        </a>
+        <div class="tb-search">
+          <input id="topSearch" type="search" placeholder="Search lessons, concepts.  (press /)" autocomplete="off" />
+          <span class="kbd">/</span>
+        </div>
+        <a class="tb-mock" href="#/mock" title="60-question timed mock exam, 105 minutes, 63% to pass">&#129514; Mock Exam</a>
+        <div class="tb-meter" title="Roadmap progress">
+          <div class="tb-bar"><i id="topBar"></i></div>
+          <span id="topPct" class="tb-pct">0%</span>
+        </div>
+        <button class="theme-toggle" id="themeToggle" aria-label="Toggle dark/light mode" title="Toggle theme">&#127769;</button>
+      </header>
+
+      <main id="view"></main>
+
+      <footer class="footer">
+        <a href="https://github.com/AbdoAddouli/Salesforce-App-Builder-Roadmap" target="_blank" rel="noopener">AbdoAddouli/Salesforce-App-Builder-Roadmap</a>
+        <span>&middot;</span>
+        <span>Salesforce Certified Platform App Builder learning academy - API 68.0 (Winter '27)</span>
+        <span>&middot;</span>
+        <span>Progress is saved in your browser</span>
+      </footer>
+
+    </div>
+  </div>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <script src="assets/curriculum.js"></script>
+  <script src="assets/answers.js"></script>
+  <script src="assets/app.js"></script>
+</body>
+</html>

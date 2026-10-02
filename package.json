@@ -1,0 +1,53 @@
+{
+  "name": "salesforce-app-builder-roadmap",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Salesforce Certified Platform App Builder (CRT-403) learning lab: declarative-first data modeling, security, automation, Lightning UI, reporting, and deployment.",
+  "scripts": {
+    "lint": "eslint \"force-app/main/default/{aura,lwc}/**/*.js\" --no-error-on-unmatched-pattern",
+    "test": "npm run test:unit",
+    "test:unit": "sfdx-lwc-jest --passWithNoTests",
+    "test:unit:watch": "sfdx-lwc-jest --watch",
+    "test:unit:debug": "sfdx-lwc-jest --debug",
+    "test:unit:coverage": "sfdx-lwc-jest --coverage --passWithNoTests",
+    "validate:metadata": "node scripts/validate-metadata.js",
+    "validate:site": "node scripts/check-site-data.js",
+    "validate:site:selftest": "node temp/pab-checker-regress.js",
+    "validate:backticks": "node temp/pab-backticks.js docs/assets/answers.js",
+    "fix:backticks": "node temp/pab-fix-backticks.js docs/assets/answers.js",
+    "test:site": "node temp/pab-smoke.js",
+    "sync:guides": "powershell -ExecutionPolicy Bypass -File scripts/sync-guides.ps1",
+    "sync:guides:check": "powershell -ExecutionPolicy Bypass -File scripts/sync-guides.ps1 -Check",
+    "prettier": "prettier --write \"**/*.{cls,cmp,component,css,html,js,json,md,page,trigger,xml,yaml,yml}\"",
+    "prettier:verify": "prettier --check \"**/*.{cls,cmp,component,css,html,js,json,md,page,trigger,xml,yaml,yml}\"",
+    "verify": "npm run validate:metadata && npm run validate:site && npm run validate:site:selftest && npm run sync:guides:check && npm run prettier:verify",
+    "prepare": "husky || true",
+    "precommit": "lint-staged"
+  },
+  "devDependencies": {
+    "@lwc/eslint-plugin-lwc": "^3.1.0",
+    "@prettier/plugin-xml": "^3.4.1",
+    "@salesforce/eslint-config-lwc": "^4.0.0",
+    "@salesforce/eslint-plugin-aura": "^3.0.0",
+    "@salesforce/eslint-plugin-lightning": "^2.0.0",
+    "@salesforce/sfdx-lwc-jest": "^7.0.2",
+    "eslint": "^9.29.0",
+    "eslint-plugin-import": "^2.31.0",
+    "eslint-plugin-jest": "^28.14.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.1.2",
+    "prettier": "^3.5.3",
+    "prettier-plugin-apex": "^2.2.6"
+  },
+  "lint-staged": {
+    "**/*.{cls,cmp,component,css,html,js,json,md,page,trigger,xml,yaml,yml}": [
+      "prettier --write"
+    ],
+    "force-app/main/default/{aura,lwc}/**/*.js": [
+      "eslint --no-error-on-unmatched-pattern"
+    ],
+    "force-app/main/default/lwc/**": [
+      "sfdx-lwc-jest -- --bail --findRelatedTests --passWithNoTests"
+    ]
+  }
+}
