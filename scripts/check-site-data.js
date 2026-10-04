@@ -165,6 +165,7 @@ const BLOCK_TYPES = new Set([
   "code",
   "callout",
   "selfcheck",
+  "case",
   "ex",
   "proj"
 ]);
@@ -321,6 +322,30 @@ function checkAcademy(modules) {
         // exercises are rendered inline as ex/proj; they are the one block that
         // carries an id the rest of the app keys off, so validate their shape too
         if (b.t === "ex" || b.t === "proj") checkExercise(b, bat, m);
+
+        // case = a real-world use case study: problem -> solution -> build steps
+        // -> gotcha. It is the one block whose whole point is that the prose is
+        // specific, so empty strings are a content bug, not a style choice.
+        if (b.t === "case") {
+          for (const k of ["title", "problem", "solution", "gotcha"])
+            if (typeof b[k] !== "string" || !b[k].trim())
+              fail(
+                `${bat}: case study needs non-empty string "${k}" - an empty section renders as a blank heading`
+              );
+          if (!Array.isArray(b.steps) || b.steps.length === 0)
+            fail(
+              `${bat}: case study needs a non-empty steps array ("How it was built")`
+            );
+          else if (b.steps.some((s) => typeof s !== "string" || !s.trim()))
+            fail(`${bat}: every case steps entry must be a non-empty string`);
+          // org (which company) and exam (how it maps to CRT-403) are optional,
+          // but if present they must not be empty - a blank pill looks broken.
+          for (const k of ["org", "exam"])
+            if (k in b && (typeof b[k] !== "string" || !b[k].trim()))
+              fail(
+                `${bat}: case study "${k}" is present but empty - omit the key instead`
+              );
+        }
       });
     });
 

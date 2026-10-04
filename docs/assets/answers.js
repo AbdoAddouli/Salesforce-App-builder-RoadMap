@@ -3155,8 +3155,9 @@ Three concrete steps:
 Withdraw Classic access at stage 4, and only once the Classic-only workflows have been listed and
 either rebuilt or consciously dropped.
 `
-},
-'15.1': **When to use unlocked vs unmanaged packages**
+,
+'15.1': `
+**When to use unlocked vs unmanaged packages**
 
 **Unlocked package**
 - Best for internal, modular development where you want to reuse components across multiple projects or orgs
@@ -3170,25 +3171,14 @@ either rebuilt or consciously dropped.
 - Good for open-source or exploratory work
 - Simpler when you just need to bundle and share metadata once
 
-**Rule of thumb:** Use **unlocked** if you expect to evolve and upgrade the package over time internally. Use **unmanaged** if it's a one-off transfer with no future upgrades planned.,
-
-**Unlocked package**
-- Best for internal, modular development where you want to reuse components across multiple projects or orgs
-- Upgradeable, so you can push updates without manually re-deploying everything
-- Good when building a shared library of metadata (e.g. common objects, flows) inside your company
-- No IP locking — appropriate for internal teams
-
-**Unmanaged package**
-- Best for one-time distribution, templates, or moving configuration between orgs without upgrade path
-- Not upgradeable; installing a new version overwrites/creates as-is
-- Good for open-source or exploratory work
-- Simpler when you just need to bundle and share metadata once
-
-**Rule of thumb:** Use **unlocked** if you expect to evolve and upgrade the package over time internally. Use **unmanaged** if it's a one-off transfer with no future upgrades planned.,
-'15.2': **Interpreting a simple package.xml**
+**Rule of thumb:** Use **unlocked** if you expect to evolve and upgrade the package over time internally. Use **unmanaged** if it's a one-off transfer with no future upgrades planned.
+`,
+'15.2': `
+**Interpreting a simple package.xml**
 
 Given:
-`xml
+
+\`\`\`xml
 <?xml version="1.0" encoding="UTF-8"?>
 <Package xmlns="http://soap.sforce.com/2006/04/metadata">
   <types>
@@ -3197,26 +3187,52 @@ Given:
   </types>
   <version>58.0</version>
 </Package>
-`
+\`\`\`
 
 **What this means:**
-- This manifest targets API version 58.0
-- It includes the PermissionSet component named "Brightline_Sales_User"
-- When retrieved, it pulls that specific permission set's metadata; when deployed, it deploys just that permission set
-- The <types> section groups components by metadata type; you can have multiple <types> blocks for different metadata types.,
-'15.3': **Determining if a change needs destructive changes**
+
+- This manifest targets API version 58.0.
+- It includes the PermissionSet component named \`Brightline_Sales_User\`.
+- When retrieved, it pulls that one permission set's metadata; when deployed, it deploys just that
+  permission set — nothing else in the org is touched.
+- The \`<types>\` section groups components by metadata type. You can have several \`<types>\` blocks, one
+  per type, and each needs its own \`<name>\`.
+- \`<members>\` is what identifies the component. For a type with several components (CustomObject,
+  CustomField) \`members\` holds one entry per component, and \`*\` means "all of this type".
+
+**The trap:** a manifest says nothing about *data*. This file deploys no Account or Opportunity
+records, no data at all — only configuration. It also does not deploy permissions implicitly; the
+permission set is the component, and what it grants lives inside it.
+`,
+  '15.3': `
+**Determining if a change needs destructive changes**
+
+A change needs a \`destructiveChanges.xml\` when it **removes a component** from the target org. A normal
+deploy can only add and update — it never deletes.
 
 **Needs destructive changes:**
-- Deleting a metadata component entirely (e.g. removing a custom field, object, record type, or flow) — a normal deploy cannot delete components
-- Renaming in a way that requires removal of old component name (sometimes handled differently; best practice is to consider destructive for the old name)
-- Cleaning up obsolete components no longer referenced
 
-**Does NOT need destructive changes (normal deploy is fine):**
-- Adding new components (fields, objects, flows, etc.)
-- Updating field labels, descriptions, formulas, or properties
-- Activating/deactivating flows or changing versions
-- Modifying page layouts, record types, validation rules
+- Deleting a metadata component entirely (a custom field, object, record type, flow or validation rule).
+- Removing a field from a page layout is *not* destructive (the layout is updated), but deleting the
+  field itself is.
+- Renaming, when the old API name must disappear — a rename is add-new + destroy-old.
+- Cleaning up obsolete components no longer referenced by anything.
 
-**Key point:** Any operation that **removes** metadata from the target org requires a **destructiveChanges.xml** (validated in sandbox first). Normal deployments are additive/updates only.,
+**Does NOT need destructive changes:**
+
+- Adding new components (fields, objects, flows, permission sets).
+- Updating labels, descriptions, help text, formulas or properties.
+- Activating/deactivating a flow, or deploying a new version of one.
+- Changing page layouts, record types or validation rules, as long as no component is deleted.
+
+**Key point:** any operation that *removes* metadata requires a \`destructiveChanges.xml\`, validated in a
+sandbox first. Normal deployments are additive and updates only.
+
+**How to tell in practice:** if the change makes something *disappear* from the target org, it is
+destructive. If it only adds something or changes how existing something behaves, it is a normal
+deploy. In a \`destructiveChanges.xml\` the entry is the component's **full API name** — for a field
+that is \`Object.Field__c\`, for an object \`Object__c\` — and it usually has to be paired with a
+\`package.xml\` that removes the remaining references to it.
+`,
 
 };

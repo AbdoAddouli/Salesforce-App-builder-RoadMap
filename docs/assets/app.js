@@ -18,8 +18,13 @@ const repoHref = p => REPO_BLOB + String(p).replace(/^\//, '');
 /* Base for the published guide mirror (docs/guide), used for every "open the raw
  * guide" link. Derived from the same slug so there is one place to update.
  * (GUIDE_DIR below is the relative path the page FETCHES from; this is the
- * absolute URL a browser navigates to.) */
-const GUIDE = 'https://' + REPO_SLUG.split('/')[1].toLowerCase() +
+ * absolute URL a browser navigates to.)
+ *
+ * Named GUIDE_PAGES, not GUIDE: curriculum.js declares `GUIDE` (the GitHub blob
+ * base) because the Abdo's Salesforce Academy hub reads it from there to build
+ * its "view source" links, and both files are concatenated into one scope by
+ * temp/pab-smoke.js. Two different URLs, so two different names. */
+const GUIDE_PAGES = 'https://' + REPO_SLUG.split('/')[1].toLowerCase() +
   '.github.io/' + REPO_SLUG.split('/')[1] + '/guide/';
 
 /* ------------------------- verified exam spine -------------------------
@@ -650,7 +655,7 @@ function renderModule(mod) {
         </div>
         <a class="btn primary sm" href="#/guide/${mod.id}">📖 Read the full guide</a>
         <a class="btn ghost sm" target="_blank" rel="noopener"
-           href="${GUIDE}${mod.guide}">📄 raw</a>
+           href="${GUIDE_PAGES}${mod.guide}">📄 raw</a>
       </div>
     </div>
 
@@ -964,6 +969,30 @@ function renderBlock(b) {
         <div class="sc-actions"><button class="btn sm ghost showA">Show answer</button></div>
         <div class="sc-a" hidden>${esc(b.a)}</div>
       </div>`;
+    /* Real-world case study: a problem a company actually had, the config that
+     * solved it, how it was built, and the part that bit them. `ex`/`proj` ask
+     * the learner to BUILD something; `case` shows what was already built, so it
+     * carries no id, no stars and no self-rating - it is reference material, not
+     * a graded activity. */
+    case 'case': {
+      const steps = (b.steps || []).map(s => `<li>${esc(s)}</li>`).join('');
+      return `
+        <div class="case-card">
+          <div class="case-head">
+            <span class="case-eyebrow">🏢 Real world</span>
+            ${b.org ? `<span class="case-org">${esc(b.org)}</span>` : ''}
+          </div>
+          <h3 class="case-title">${esc(b.title)}</h3>
+          <div class="case-label">🩹 The problem</div>
+          <p class="case-p">${esc(b.problem)}</p>
+          <div class="case-label">🛠️ The solution</div>
+          <p class="case-p">${esc(b.solution)}</p>
+          <div class="case-label">🔧 How it was built</div>
+          <ol class="case-list">${steps}</ol>
+          <div class="case-gotcha">⚠️ <b>What went wrong:</b> ${esc(b.gotcha)}</div>
+          ${b.exam ? `<div class="case-exam">🎯 <b>Exam angle:</b> ${esc(b.exam)}</div>` : ''}
+        </div>`;
+    }
     case 'ex':
     case 'proj': {
       const isProject = b.t === 'proj';
@@ -1046,7 +1075,7 @@ function renderGuide(mod) {
       <div class="ph-side">
         <div class="ring sm" style="--p:${p.pct};--c:${mod.color}"><span>${p.pct}<small>%</small></span></div>
         <div class="ph-stats"><span>${read ? '✓ guide read' : 'guide unread'}</span></div>
-        <a class="btn ghost sm" target="_blank" rel="noopener" href="${GUIDE}${mod.guide}">📄 raw on GitHub</a>
+        <a class="btn ghost sm" target="_blank" rel="noopener" href="${GUIDE_PAGES}${mod.guide}">📄 raw on GitHub</a>
       </div>
     </div>
 
@@ -1089,7 +1118,7 @@ function renderGuide(mod) {
         <div class="gf-ico">⚠️</div>
         <h3>Could not load the guide file</h3>
         <p>The full guide is served from <code class="inline">docs/guide/${esc(mod.guide)}</code> in this repo. If you are viewing a local file (not through GitHub Pages), the fetch may be blocked.</p>
-        <a class="btn" target="_blank" rel="noopener" href="${GUIDE}${mod.guide}">📄 Open the guide on GitHub</a>
+        <a class="btn" target="_blank" rel="noopener" href="${GUIDE_PAGES}${mod.guide}">📄 Open the guide on GitHub</a>
       </div>`;
   });
 

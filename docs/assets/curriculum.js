@@ -22,10 +22,17 @@
  *     selfcheck { q, a }                  "check yourself" reveal
  *     ex        { id, title, obj, stars, steps[], verify }
  *     proj      { id, title, obj, stars, reqs[],  success }
+ *     case      { title, problem, solution, steps[], gotcha, org?, exam? }
+ *                real-world use case. Reference material, NOT a graded activity,
+ *                so it carries no id, no stars and no self-rating.
  *
  *   `ex.id` / `proj.id` is the primary key: EXERCISE_ANSWERS is keyed by it and
  *   the self-rating stars are stored under it. Must be unique across the WHOLE
- *   academy. Convention: "1.3" = Phase 01 exercise 3, "17.2" = Phase 17 project 2.
+* academy. Convention: "1.3" = Phase 01 exercise 3, "17.2" = Phase 17 project 2.
+ *
+ *   GUIDE: base URL the phase guides are served from. Consumed by the Abdo's
+ *   Salesforce Academy hub (build/build-guides.mjs) to build "view source" links,
+ *   so it must be declared - every other academy declares one too.
  *
  *   quiz.questions[]: { q, opts[2+], a, why }.
  *     `a` is an option INDEX; use an ARRAY of 2+ indices for multi-select, which
@@ -43,6 +50,8 @@
  * deliberately reuse the same objects and fields, so later phases extend earlier
  * work instead of restarting. Naming follows Salesforce conventions.
  * ========================================================================== */
+
+const GUIDE = 'https://github.com/AbdoAddouli/Salesforce-App-builder-RoadMap/blob/main/developer%20Platform%20App%20Builder%20Roadmap/';
 
 const ACADEMY = [
   {
@@ -105,7 +114,23 @@ const ACADEMY = [
             'Custom field on a standard object — no new tab; the field just appears in layouts and reports. Example: Lead → Lead_Source_Detail__c.'
           ] },
           { t: 'callout', kind: 'warn', x: 'The "__c" suffix is not cosmetic. It is how you recognise a custom object or field in the Setup UI, in the API, and in exam questions.' },
-          { t: 'selfcheck', q: 'Brightline wants to track "Warranty Expiry Date" on every Contract. Does that need a new object, and will it need a new tab?', a: 'Neither. It is a custom FIELD on the standard Contract object. Custom fields never create a tab — a tab only exists per object, and Contract already has one. This distinction (custom field vs custom object) is a common exam trap.' }
+          { t: 'selfcheck', q: 'Brightline wants to track "Warranty Expiry Date" on every Contract. Does that need a new object, and will it need a new tab?', a: 'Neither. It is a custom FIELD on the standard Contract object. Custom fields never create a tab — a tab only exists per object, and Contract already has one. This distinction (custom field vs custom object) is a common exam trap.' },
+          {
+            t: 'case',
+            title: 'The single-object mistake',
+            org: 'Kettle & Sons Fabrication (UK manufacturing, 40 staff)',
+            problem: 'A consultant sold them one big custom object, Business_Event__c, holding every enquiry, order, invoice and service visit as a row. It felt tidy: one tab, one object, one report. Six months in nobody could report on anything. You cannot ask "revenue this quarter" when invoices and service visits are rows of the same object — the filter has no way to tell the rows apart, and the object had already passed 60 fields.',
+            solution: 'Split by lifecycle, not by department. Three objects, each with its own lifecycle and its own thin field set: Enquiry__c (14 fields), Order__c (16), Service_Visit__c (9). All three hold a lookup to Account, and Order__c holds a lookup to Product. Reporting became trivial because each object now means exactly one thing.',
+            steps: [
+              'List the distinct THINGS the business acts on, not the departments that touch them. Kettle & Sons had four: enquiries, orders, invoices, service visits.',
+              'Give each one its own object. The test: does it need its own records, its own status, or its own reporting? If yes, it deserves an object.',
+              'Keep only the fields that describe that one thing. Order__c carries PO_Number__c and Total_Value__c; it does not carry a "last service date" — that belongs on the service visit.',
+              'Relate them to Account with lookups rather than one giant object with no relationships at all.',
+              'Delete the old object once the new ones are populated, in that order, and validate in sandbox first.'
+            ],
+            gotcha: 'They had used a master-detail from Order__c to Account, which made sense until they wanted to delete a single cancelled order and found they had to delete the whole account with it. Master-detail means the child cannot exist alone and its roll-ups are guaranteed accurate — a bargain you should only take when it is genuinely true. Where it is not, use a lookup and a roll-up summary.',
+            exam: 'Data modeling questions are mostly testing whether you can tell a custom OBJECT from a custom FIELD, and whether you can justify a split. The Kettle & Sons story is the argument for one-thing-per-object: it is the same reason Phase 4 makes you create objects before adding fields.'
+          }
         ]
       },
       {
@@ -132,7 +157,23 @@ const ACADEMY = [
               ['Setup (gear, then App Setup)', 'Admin configuration and security', 'profiles, sharing, packaging, deployment']
             ]
           },
-          { t: 'selfcheck', q: 'A user says "I can\'t find open Opportunities over $50k." Which three tools would you reach for, in order?', a: '1) Check they have the right app and the Opportunities tab exists in it. 2) Open the Opportunities tab and use or build a list view filtered to Stage = Open Won-ish / open AND Amount greater than 50,000. 3) If they cannot build the filter, check their profile/sharing — they may not see those records at all, which is a sharing problem, not a list view problem.' }
+          { t: 'selfcheck', q: 'A user says "I can\'t find open Opportunities over $50k." Which three tools would you reach for, in order?', a: '1) Check they have the right app and the Opportunities tab exists in it. 2) Open the Opportunities tab and use or build a list view filtered to Stage = Open Won-ish / open AND Amount greater than 50,000. 3) If they cannot build the filter, check their profile/sharing — they may not see those records at all, which is a sharing problem, not a list view problem.' },
+          {
+            t: 'case',
+            title: '"I cannot find my deals"',
+            org: 'Northgate Plumbing Supplies (trade distributor, 90 users)',
+            problem: 'Every rep opened a ticket saying the same thing: they could not find their open deals. The records were there and they were allowed to see them. The problem was navigation. Northgate had four Lightning apps, each with its own Accounts and Opportunities tab, and each tab carried a different pile of saved list views. The view a rep actually wanted - their own open opportunities above 50,000 - did not exist anywhere.',
+            solution: 'One app, one default view. They built a single Lightning app, "Northgate Sales", put it in the rep profile so it is the only one they open, and made one list view - "My open deals", filtered on Owner = current user, Stage not Closed, Amount greater than 50000 - the default view for the Opportunities tab.',
+            steps: [
+              'Ask the user to reproduce it before changing anything: open the Opportunities tab and write down exactly what they see. In Northgate\'s case the answer was "four apps, all different", which is a navigation bug, not a data bug.',
+              'Check whether the records are actually visible by finding one through Global Search. If search finds it, sharing is fine and you can stop looking at OWD and roles.',
+              'Build the missing list view and set it as the tab default, so the view they want is what they land on.',
+              'Reduce the number of apps their profile can see, so there is one obvious place to work.',
+              'Write the filter as a sentence they can repeat back: "mine, still open, over fifty thousand".'
+            ],
+            gotcha: 'Northgate spent two days rebuilding sharing rules and the role hierarchy before anyone checked Global Search. Sharing fixes "you cannot SEE it"; a list view fixes "you cannot FIND it". Running Global Search is a thirty-second test that splits those two problems in half, and it is also the correct first move on any "missing records" ticket.',
+            exam: 'UI and fundamentals questions are deliberately ambiguous about this. The skill being tested is diagnosing WHICH surface is wrong - app, tab, list view, page layout, search layout, or sharing - rather than reaching for the most powerful-sounding fix.'
+          }
         ]
       },
       {
@@ -209,6 +250,22 @@ const ACADEMY = [
               'Open Setup → Object Manager and find the API name of the Opportunity object. Compare it to its label.'
             ],
             verify: 'Custom fields carry the "__c" suffix; standard fields do not. A list view shows MANY records (a filtered list of rows); a record page shows ONE record with its fields and related lists. The Opportunity API name is "Opportunity" (no suffix) while a custom object\'s API name matches its label with "__c", e.g. Quote_Request__c.'
+          },
+          {
+            t: 'case',
+            title: 'The discount nobody approved',
+            org: 'Harbour Fitness Group (12 gyms, 400 staff)',
+            problem: 'Gym membership reps could set any discount they liked, and finance discovered the damage at month end: 40,000 off memberships nobody had approved. The commercial director wanted a control and asked for the system to stop them saving.',
+            solution: 'An approval process on Opportunity, not a validation rule. The rep raises the discount, the regional manager approves or rejects, and only an approved record can be marked Closed Won. A custom field holds the requested percentage and a page layout puts it somewhere visible.',
+            steps: [
+              'Add Requested_Discount__c (Percent) to Opportunity. The number has to exist as data before it can be governed, and this is the step people skip.',
+              'Build an approval process on Opportunity with one step assigned to the regional manager, entry criteria Requested_Discount__c greater than 10, and allow submission enabled so the rep can save the record without waiting.',
+              'Decide what approval actually CONTROLS. They chose the final step: only an approved Opportunity may move to Closed Won, enforced with a validation rule that reads the approval status.',
+              'Add the field to the Opportunity page layout so both rep and manager see the number being approved.',
+              'Test the negative path: submit above 10% and try to set Closed Won before approval. It has to fail.'
+            ],
+            gotcha: 'The first attempt was a validation rule blocking any save with a discount over 10%. It worked, and it was a disaster: the rep could not save at all, had no route to request approval, and simply lost the deal. A validation rule can only say no. If the business needs a "no, but ask someone" path, the answer is an approval process.',
+            exam: 'This is the canonical "which feature?" question, and the tell is the phrase "must be approved". Validation rejects a save, formula computes a value, roll-up aggregates children, flow reacts after the fact. Only an approval process has submit, approve and reject.'
           }
         ]
       },
@@ -258,6 +315,21 @@ const ACADEMY = [
               'Sketch the happy path in three to five steps: from a new web Lead to a signed Contract. Name which object is "in play" at each step.'
             ],
             success: 'You have a one-page plan naming standard objects, three custom objects with clear purposes and relationship types, and a Lead-to-Contract flow. This plan becomes the contract for Phases 2-17.'
+          },
+          {
+            t: 'case',
+            title: 'The flow that calculated itself into a deadlock',
+            org: 'Tideline Water Utilities (regional water utility, 600 staff)',
+            problem: 'Their operations team needed Order_Total__c on the parent Account to always equal the sum of its child Meter_Reading__c values. A consultant built a record-triggered flow on Meter_Reading__c that looked up the Account and wrote the sum back. It worked for six months. Then a Data Loader import of 40,000 readings hit "Maximum CPU time limit exceeded" and the nightly job stopped dead.',
+            solution: 'A roll-up summary field on Account summing Meter_Reading__c.Reading__c, and the flow deleted. Salesforce recalculates roll-ups at the platform level, so there is no automation to time out and no risk of one update re-triggering the thing that caused it.',
+            steps: [
+              'Name the requirement precisely: "a value on the parent that is the sum of an unknown number of children". That phrase is the roll-up summary, by definition.',
+              'Create the roll-up summary on Account, choose SUM as the function, and pick Reading__c on Meter_Reading__c as the source.',
+              'Delete the flow. Nothing else in the flow was doing anything the roll-up does not do better.',
+              'Re-run the Data Loader import to confirm it completes, then check one Account by hand against its children.'
+            ],
+            gotcha: 'The failure mode was recursion, and it is worth understanding rather than just avoiding. The flow updated the Account, the Account save re-entered the flow, and the chain repeated until the CPU budget ran out. Roll-up summary fields cannot do this: they are declarative, they are not triggered by their own result, and they cannot loop. The general rule is that a formula reads the record, a roll-up aggregates children, and automation is the tool you reach for only when neither can express the requirement.',
+            exam: 'Business Logic and Process Automation is the heaviest domain at roughly 28% of the exam, and this is the pattern it rewards: recognise the declarative feature first. Reaching for flow when a roll-up or formula expresses the requirement is the single most common wrong answer on this domain.'
           }
         ]
       }
@@ -384,6 +456,21 @@ const ACADEMY = [
               'Report 4: "I can see Account records, but not any of the accounts assigned to the other region."'
             ],
             verify: '1 = object/profile access: the user lacks object Read on Opportunity, or their profile does not expose the tab. 2 = field FLS on Amount (plus Update for editing) - object Read clearly works. 3 = record-level sharing for that specific record. 4 = record-level sharing at scale, i.e. an OWD or sharing-rule problem rather than a per-record one.'
+          },
+          {
+            t: 'case',
+            title: 'The four-layer ticket',
+            org: 'Brightline Equipment (internal rollout)',
+            problem: 'A Brightline sales rep logged a ticket: "I can open the Opportunity tab, but when I open Acme Paper Mill, I can\'t see the Annual Revenue field, and for some other opportunities I can\'t open them at all."',
+            solution: 'Split it by layer. Object access must be true. If a record opens but a field is blank/greyed, that is Field-Level Security. If a record cannot open, that is record-level sharing (ownership, OWD, role, sharing rule, manual share).',
+            steps: [
+              'Step one (object): can they open any record of that object? If no, fix profile/permission set - expose the tab, grant Read.',
+              'Step two (record): if object is fine but some records are blocked, check ownership, OWD and sharing. Start at the level of the record (manual share), then rule-based (sharing rules), then role hierarchy.',
+              'Step three (field): if they reach the record detail but a field is missing from UI entirely, check page layout visibility. If it is present but greyed/blank, check FLS for their profile/PS.',
+              'Treat the three as layers you test in order, not in parallel. Do not touch sharing to fix a greyed field.'
+            ],
+            gotcha: 'They tried to add the rep to the VP\'s role to "give more access". That would have changed visibility for everything in that branch - a massive overreach for a single field. FLS on that single field in the rep\'s permission set would have fixed it in minutes with zero blast radius.',
+            exam: 'This is the same trap as the "Annual Revenue is blank" question: object Read can be true while FLS is false. When diagnosing, always ask "can they open the record" first - the answer tells you which of the four layers you are in.'
           }
         ]
       },
@@ -435,6 +522,22 @@ const ACADEMY = [
               'Note which setting you would check if a user could see an Account but not its Opportunities.'
             ],
             verify: 'A defensible answer: Opportunity = Private (sensitive deal data, widened by a sharing rule on Territory); Account = Private or Controlled by Parent; Contact = Controlled by Parent is typical. The manager gets access via a sharing rule or a flow sharing rule keyed on Territory__c. Manual/External sharing is needed only for users outside the org (partner/portal), not for internal staff. The Account-but-not-Opportunity symptom points at Controlled by Parent on Opportunity.'
+          },
+          {
+            t: 'case',
+            title: 'The OWD nobody could walk back',
+            org: 'Harrow & Voss LLP (commercial law firm, 120 staff)',
+            problem: 'A trainee opened a matter for an unrelated client and could see the strategy notes on it. The matter object had been left on its out-of-the-box Public Read Only default since the sandbox was first built, and nobody had ever reviewed it. The first fix attempt was worse: they tightened the profile of the person who reported it, which locked three paralegals out of their own files and did nothing at all for anyone else.',
+            solution: 'Treat org-wide defaults as the baseline and set it to Private on anything commercially sensitive. Then widen deliberately, one mechanism at a time: the role hierarchy for supervising partners, sharing rules keyed on practice group and responsible partner, and a permission set for the document team. Every widening is a thing you can point at in the audit rather than an accident of a profile.',
+            steps: [
+              'List every object holding privileged or commercially sensitive material before touching a single setting.',
+              'Set the org-wide default on each of them to Private, working from a backup so the change is reversible.',
+              'Add back access one mechanism at a time, writing down which mechanism grants what.',
+              'Use the role hierarchy for the supervisory chain rather than sharing every record to a group.',
+              'Put the extra access in permission sets so it can be reviewed and removed without rebuilding profiles.'
+            ],
+            gotcha: 'Org-wide defaults only ever widen. They can never restrict below what they are set to, so a Public Read Only default means every user in the org can read every record and no amount of profile tightening closes that off for anyone you forget. Decide the baseline before you design the access, never after.',
+            exam: 'Questions that describe a leak usually want Private as the baseline plus a named widening mechanism. Being able to say which of the four defaults you would choose and why is most of the marks.'
           }
         ]
       },
@@ -486,6 +589,21 @@ const ACADEMY = [
               'Write the troubleshooting steps for a rep who reports "I cannot see an Opportunity in my own territory that I do not own".'
             ],
             success: 'A one-page security design: role tree, OWD choices with justification, named sharing rules with criteria, permission set list, and an ordered troubleshooting path. Phases 12-16 will turn this into actual permission set metadata.'
+          },
+          {
+            t: 'case',
+            title: 'Never reach for Apex first',
+            org: 'Brightline Equipment',
+            problem: 'A contractor must see exactly one Account, and only until the engagement ends. Someone suggested Apex sharing.',
+            solution: 'Use a manual share, revoked automatically by expiry. Sharing rules cannot reliably "expire"; Apex can, but it is a code dependency for one-off access.',
+            steps: [
+              'Prefer manual share for a single record with a known end date.',
+              'If it must be criteria-driven and recurring, use a sharing rule with a scheduled process to remove it, but recognise the edge cases.',
+              'Only use Apex sharing when the logic cannot be expressed declaratively.',
+              'Document revocation - the audit needs to show who can revoke, and how.'
+            ],
+            gotcha: 'Apex sharing works, but now every time that logic changes you need a developer. For this single-record time-limited case, it is overkill.',
+            exam: 'The exam asks you to pick the lightest declarative tool. Manual share wins for ad-hoc, time-limited record access.'
           }
         ]
       }
@@ -609,6 +727,21 @@ const ACADEMY = [
               'For Request D, name which object must be primary and explain what happens to the row count if you get it wrong.'
             ],
             verify: 'A = Summary (Count + SUM of Amount, no grouping). B = Detail or Tabular; Detail if you do not know the field set yet, Tabular if you do — the request names the fields, so Tabular is the stronger answer. C = Matrix (rows = Territory, columns = Stage). D = Joined with Account primary and Opportunity as the related object, so it counts accounts; make Opportunity primary and the total becomes opportunities instead. E = Tabular, explicitly, because it names both the column set and the order.'
+          },
+          {
+            t: 'case',
+            title: 'Two reports and one wrong number',
+            org: 'Coldchain Logistics Network (UK temperature-controlled transport, 300 staff)',
+            problem: 'Asked for every account with its open loads underneath, someone built a joined report and put the load object in the primary position. The dashboard headline read 240. The operations director expected 96 and had said so in the request. Nobody spotted it for three weeks, because 240 is a perfectly plausible number of deliveries for a haulier running that many lorries, and nobody re-counted a number they were not suspicious of.',
+            solution: 'Rebuilt as a joined report with Account in the primary position and the load joined underneath. The headline now reads 96 accounts, each with its loads nested below, and the number means something a human can sanity check against the depot list.',
+            steps: [
+              'Read the request as a question shape before opening the report builder.',
+              'Decide what the headline number has to mean, then put the object that carries that meaning in the primary position.',
+              'Join the child records underneath it rather than listing them as the driver.',
+              'Check the headline against a number you already trust from outside Salesforce.'
+            ],
+            gotcha: 'A joined report counts primary records, never child rows. Choose the primary object by the question being asked, not by which object happens to hold the fields you need - swapping it is the single most common way a joined report becomes quietly wrong.',
+            exam: 'Five report types, one discriminator: summary and matrix group, detail, tabular and joined do not. A joined report also needs its primary object identified, and that is often the whole question.'
           }
         ]
       },
@@ -662,6 +795,21 @@ const ACADEMY = [
               'For each report, note one thing that would make it return zero rows for a legitimate user, and how you would tell that apart from "no data exists".'
             ],
             verify: 'Pipeline report: Summary, Opportunity, filter CloseDate = THIS QUARTER (relative, not hardcoded), Stage not equal to Closed Won/Lost, row grouping Territory__c, measure COUNT and SUM of Amount, date grouping on CloseDate with Quarter and Year visible. Decide explicitly whether it is org-wide or restricted. The zero-row diagnosis is the key part: "closed won deals only" + OWD Private + no sharing rule is indistinguishable from "no data" until you check the running user.'
+          },
+          {
+            t: 'case',
+            title: 'Filters go stale',
+            org: 'Brightline Equipment',
+            problem: 'The old sales report froze "Close Date between 1 Jan 2026 and 31 Mar 2026" and by March it was still filtering Q1, so leadership saw nothing for Q2.',
+            solution: 'Use relative date ranges (THIS QUARTER, NEXT 90 DAYS) and a stable filter set. Freeze dates are for an audit, not a live dashboard.',
+            steps: [
+              'Pick THIS QUARTER, THIS MONTH, THIS YEAR or a sliding window for live reports.',
+              'Keep a separate archive report with absolute dates.',
+              'Explain the date grouping when grouping by dates.',
+              'Test at month-end boundaries.'
+            ],
+            gotcha: 'Relative ranges are calculated at run time. Hardcoded dates expire and are the most common "nothing shows up" complaint.',
+            exam: 'The exam almost always wants the relative option for operational reports.'
           }
         ]
       },
@@ -719,6 +867,22 @@ const ACADEMY = [
               'Write the troubleshooting note: the three most likely causes of an empty report for one legitimate user.'
             ],
             success: 'A written reporting spec: five report definitions, two dashboard layouts with a stated question per component, an explicit mobile decision, and an empty-report triage note. No report relies on hardcoded dates or hardcoded owner names.'
+          },
+          {
+            t: 'case',
+            title: 'Dashboards do not live on mobile',
+            org: 'Brightline Equipment',
+            problem: 'Sales reps wanted a dashboard in the Salesforce mobile app. They were told it already existed.',
+            solution: 'Explain the platform reality: Lightning Experience dashboards are desktop-only. Design a mobile-first view using a mobile record page or a Lightning app page optimised for small screens instead.',
+            steps: [
+              'State the reality clearly: the Salesforce mobile app does not render dashboards.',
+              'Define what they DO see on mobile: record pages, navigation, and lists.',
+              'Build a mobile record page with the top four metrics as fields/components.',
+              'Alternatively, put key metrics on the Account/Opportunity record page with dynamic visibility.',
+              'If they need a list, use list views, which work in mobile.'
+            ],
+            gotcha: 'Assuming browser behaviour carries over to the mobile app. It does not. The exam loves this.',
+            exam: 'Mobile UX in this module: dashboards are not mobile-ready.'
           }
         ]
       }
@@ -856,6 +1020,21 @@ const ACADEMY = [
               'For R2 and R5, name the standard object you would extend (if any) and the relationship type you would use for the child records.'
             ],
             verify: 'R1 = field on Contract. R2 = custom object Quote_Request__c with a child Quote_Line__c, master-detail from Quote_Request__c so lines cannot exist without their parent. R3 = field (picklist or lookup to Territory__c) on Opportunity. R4 = neither - personalisation is exactly what Salesforce Personalization Types and app navigation handle, so a custom object would be wrong. R5 = custom object Discount_Request__c with a lookup to Opportunity (lookup, not master-detail, because the discount request must be able to exist before or independently of any Opportunity state change) plus approval fields.'
+          },
+          {
+            t: 'case',
+            title: 'An object per appointment slot',
+            org: 'Marchmont Family Dental (12-site dental group, 90 clinical staff)',
+            problem: 'Someone modelled appointment slots as a custom object, one record per chair per half hour. Fourteen chairs across eight hours and 260 days is about 29,000 rows a year, all of which had to be created in advance and deleted on a rolling basis. Booking a patient then meant writing to the slot object as well as to the patient record, and the two drifted apart every time a booking was cancelled by phone instead of in the system.',
+            solution: 'One field. A booked timestamp on the appointment record plus a status picklist, with the chair roster held as configuration rather than data. Slots were never the thing anyone wanted to report on; bookings were.',
+            steps: [
+              'Ask whether the thing needs its own records, its own lifecycle, or its own reporting.',
+              'Apply the pressure test: would a manager ever ask to see all the late ones, or all the unused ones this month?',
+              'If the answer is never, it is a field or configuration, not an object.',
+              'Keep the per-unit roster in custom metadata or a picklist, not in records.'
+            ],
+            gotcha: 'The pressure test is the whole decision. Slots could not answer "show me every unfilled slot today" without a separate query against an object that held no business meaning, and bookings answered it immediately because the booking is the record.',
+            exam: 'Field versus custom object is decided by own records, own lifecycle, own reporting. The exam rarely needs the nuance; it needs the three questions asked in that order.'
           }
         ]
       },
@@ -911,6 +1090,21 @@ const ACADEMY = [
               'Explain how Currency-versus-Number bites you when you later build a formula totalling this Opportunity (forward reference to Phase 6).'
             ],
             verify: 'Territory: label "Sales Territory", API Territory__c, type = lookup to Territory__c if you want territory owner/reporting, or picklist if it is purely a label — state which test drove it, and note that the sharing rules in Phase 2 keyed on Territory__c need a field you can filter on (a picklist works for filtering too). Discount_Percent__c = Percent, not Currency, which sidesteps the Phase 6 trap. Primary_Competitor__c = Text (a name, not an entity needing ownership). Expected_Close_Date__c = Date. None unique. Renaming an API name breaks every downstream reference; renaming the label breaks nothing.'
+          },
+          {
+            t: 'case',
+            title: 'The field nobody dared rename',
+            org: 'Wexford Berry Farms (soft fruit grower, 60 staff, 400 hectares)',
+            problem: 'Yield forecast went in as a text field, then a currency field, then a number field, each time retyping the same numbers. By the end there was a formula referencing Harvest_Yield__c that pointed at an API name nobody could remember, so nobody dared change the label to match. The exported column headers read Yld_Fcst_v2_FINAL and the field carried a length of 255 because that is what the wizard defaulted to.',
+            solution: 'One field, correctly typed from the first day: a Number with three decimal places, labelled Yield Forecast (t per hectare), with the API name Harvest_Yield__c left alone. Three years of workbooks still resolve, because the label is presentation and the API name was never touched.',
+            steps: [
+              'Pick the type from the data, not from how the field is displayed.',
+              'Treat the API name as permanent from the moment the field is created.',
+              'Change labels freely, including the report label, whenever the business wording moves on.',
+              'Set a sensible text length rather than accepting the default.'
+            ],
+            gotcha: 'Currency is not a formula-friendly type. It does not aggregate into a numeric formula cleanly, so a forecast stored in currency leaves you writing a conversion later. Pick Number or Percent for anything you intend to calculate with.',
+            exam: 'Three names, one immutable. The API name is referenced by formulas, flows, validation rules, permission sets, reports and the metadata XML, and renaming it breaks all of them at once.'
           }
         ]
       },
@@ -958,6 +1152,21 @@ const ACADEMY = [
               'Note any field whose API name must never change, and what would break if it did.'
             ],
             success: 'A written schema: five custom objects with names and record name types, all custom fields with types and constraints, every relationship typed and justified, plus an explicit list of what you refused to model as an object. Nothing in it needs Apex to be useful.'
+          },
+          {
+            t: 'case',
+            title: 'Unique on a text field',
+            org: 'Northgate Sixth Form (1,400 students, 90 teaching staff)',
+            problem: 'Student numbers were held in a text field marked Unique. Because it was text, "1042", " 1042" and "1042 " counted as three different students, and a leading zero carried over from the old system produced a fourth duplicate of a number that already existed. Nobody noticed for a term. The same field was also being used to record the exam centre, so it held two different kinds of value and neither was a number.',
+            solution: 'Split the concept in two: Student_Number__c as Text, length 8, marked Unique, plus Exam_Centre__c as a lookup to a centre object. A validation rule rejects anything that is not exactly eight digits after trimming, so the uniqueness guarantee is applied to a value that is actually normalised.',
+            steps: [
+              'Decide what the value is before deciding how to store it. Here it was two things wearing one field.',
+              'Choose the type that makes the value behave: text with a fixed length, not a number field, because the leading zero is part of it.',
+              'Add a validation rule that normalises and then checks, so Unique is applied to a value that means one thing.',
+              'Keep a separate field for the second concept rather than overloading the first.'
+            ],
+            gotcha: 'Unique is a platform guarantee on the exact stored value and nothing else. It does not trim whitespace, ignore case or strip leading zeros, so two teams entering the same number slightly differently will both succeed.',
+            exam: 'Required checks presence only, Unique is an exact-value guarantee, and a validation rule is where correctness lives. Knowing which of the three does what is the whole question.'
           }
         ]
       }
@@ -1094,6 +1303,21 @@ const ACADEMY = [
               'State whether "Allow orphan records" should ever be enabled for Pair 1, and why.'
             ],
             verify: '1 = master-detail, "cannot exist without" (and it unlocks the roll-up). 2 = lookup, "must survive independently". 3 = master-detail for Contact→Account (the standard configuration; orphan contacts are meaningless). 4 = lookup from line to Product, master-detail from line to kit — two relationships, different directions. For Pair 3: the Contact has no independent owner (it inherits Account ownership), sharing follows the Account, and a roll-up on Account would sum the Contacts. For Pair 2: deleting the Opportunity leaves Discount_Request__c records pointing at nothing — prevent it with a validation rule, or accept it and monitor for blank lookups. Orphan records should NOT be enabled for Pair 1: an orphaned quote line is meaningless and would corrupt the roll-up total.'
+          },
+          {
+            t: 'case',
+            title: 'The roll-up that would not create',
+            org: 'Redland Marine Systems (boat builder, 120 staff)',
+            problem: 'Build tasks were related to orders by a lookup, because a task sometimes moved between orders and the team wanted to keep that flexible. Then somebody asked for a roll-up summary of hours on the order. The field simply would not create - the wizard refused it, the error message pointed at the relationship rather than the field, and the project stopped for a week while people argued about whether Salesforce was broken.',
+            solution: 'Two relationships instead of one. Master-detail from the order to its build tasks, so the tasks belong to the order and the roll-up works, and a separate lookup from each task to the production order it is currently allocated to, which is what actually needed to be flexible.',
+            steps: [
+              'Decide the relationship by asking whether deleting the parent invalidates the child.',
+              'If a roll-up is needed on the parent, that alone forces master-detail - there is no partial answer.',
+              'Where the real requirement is flexibility, add a second lookup rather than weakening the first relationship.',
+              'Check the consequences list before committing: required parent, no independent owner, cascade delete, inherited sharing.'
+            ],
+            gotcha: 'Roll-up summary fields can only aggregate over master-detail children. A lookup relationship makes the roll-up unavailable entirely, not merely limited, and there is no configuration trick that unlocks it.',
+            exam: 'Know the consequences of each relationship type cold: master-detail means required parent, no independent owner, cascade delete, inherited sharing, roll-ups allowed. Lookup means optional, own owner, orphans, independent sharing, no roll-ups.'
           }
         ]
       },
@@ -1140,6 +1364,21 @@ const ACADEMY = [
               'Decide which of these five rules needs a lookup filter as well, and which need one DESPITE the filter.'
             ],
             verify: 'Line-vs-parent status: error condition like AND(Quote_Request__c.Request_Status__c = "Expired", ...) with the message "Cannot add lines to an expired quote request." Zero-lines rule: COUNT() of the Quote_Line__c related records = 0 while status is Submitted — needs a master-detail relationship because COUNT() over children requires it, and roll-ups only work on master-detail. Discount-vs-closed-lost: AND(ISNULL(Opportunity__c), FALSE, Opportunity__c.StageName = "Closed Lost") with the lookup guard. Quantity: OR(Quantity__c <= 0, Quantity__c > 10000) with an appropriate message. Lookup filters help for the product selection UX, but rules 1, 2, 3 and 5 all need validation rules regardless, because a filter only governs interactive selection.'
+          },
+          {
+            t: 'case',
+            title: 'The filter that stopped filtering',
+            org: 'Tidewater Stays (boutique hotel group, 9 properties)',
+            problem: 'Housekeeping relied on a lookup filter to stop a room being booked while it was out of service. It worked for two years. Then a bulk reservation import ran overnight, and because an import sets the value without ever showing the picker, sixty reservations landed on rooms that were already sold or closed for maintenance. The morning shift found out from the guests.',
+            solution: 'The lookup filter stayed, because it is still the right guardrail for people. Underneath it they added a cross-object validation rule on the booking that traverses to the room and rejects the save if the room status is Out of Service or if an overlapping booking already exists. The rule fires however the value arrived.',
+            steps: [
+              'Use the lookup filter for the human path so the right answer is the easy answer.',
+              'Add a validation rule for everything else, because flows, imports and API calls all bypass the picker.',
+              'Traverse the relationship in the rule formula so it checks the room, not just the booking.',
+              'Give the error message the actual room number and status so the user can fix it without opening a second record.'
+            ],
+            gotcha: 'A lookup filter only governs the picker. Any value set by a flow assignment, a data import or an API call goes straight past it, so a rule that matters has to be a validation rule. Using the filter as your only defence is fine right up until the first import.',
+            exam: 'Filter restricts selection, validation rule guarantees at save time and can traverse the relationship. A question that says users must not be able to choose X usually wants both, and the reasoning is the marks.'
           }
         ]
       },
@@ -1196,6 +1435,21 @@ const ACADEMY = [
               'Describe one symptom where a validation rule silently does not fire, and the declarative fix for it.'
             ],
             success: 'A written integrity spec: five typed relationships with consequences, six complete rules, lookup filter decisions, two gap-detection reports, and a deletion policy. Every rule is expressible without Apex.'
+          },
+          {
+            t: 'case',
+            title: 'The delete that took four thousand rows with it',
+            org: 'Bracken & Co Pharmacy (independent pharmacy group, 25 branches)',
+            problem: 'An administrator deleted a supplier record they were certain was a duplicate. It was a master-detail parent, so 4,100 dispensing records went with it, along with a decade of stock history for one branch. There was no backup taken beforehand, and by the time anyone realised, the recycle bin was past its window.',
+            solution: 'Rebuilt from the nightly data export, which is the only reason the branch reopened the same week. Then Delete was removed from the object in a permission set assigned to everything except the two admins, so the only remaining way to remove a parent is a deliberate admin action.',
+            steps: [
+              'Before deleting anything, find out whether the object is a master-detail parent. That single check would have prevented the whole incident.',
+              'Take an export, not a backup, and know where last night\'s copy actually lives.',
+              'Remove Delete from the object in a permission set rather than relying on training.',
+              'Add a validation rule where deleting a parent with children should never be allowed at all.'
+            ],
+            gotcha: 'Cascade delete is silent. There is no confirmation prompt listing the children that will go, and recovery is only possible inside the recycle bin window, which for most objects is a matter of days. The check that matters is one question: is this a master-detail parent?',
+            exam: 'Unique, required, validation rules and cascade delete are four different integrity mechanisms with different scope. Being able to say which one prevents which kind of damage is the point of the lesson.'
           }
         ]
       }
@@ -1343,6 +1597,21 @@ const ACADEMY = [
               'For each formula, name the risk of getting a blank or a null wrong, and how your formula avoids it.'
             ],
             verify: 'F1: IF(ISPICKVAL(Quantity__c), Unit_Price__c * Quantity__c, 0) — the function guards the blank. F2: Account__c.Name & " - " & Quote_Request__c.Name, where & is the concatenation operator. F3: IF(ISPICKVAL(Requested_Date__c), TODAY() - Requested_Date__c, "Not started") — note the IF returns two different types, which is allowed for Text. F4: nested IF with three arguments per level. F5: nested IF using NOT(ISPICKVAL(Expiry_Date__c)) first, then Expiry_Date__c < TODAY(), then Expiry_Date__c - TODAY() <= 30. In every case ISPICKVAL or ISBLANK is the guard that prevents a blank propagating into an error.'
+          },
+          {
+            t: 'case',
+            title: 'The blank that broke every report',
+            org: 'Brightline Equipment',
+            problem: 'Finance built a report of Quote_Line__c.Line_Total__c and every single row showed "#Error!". The records were fine and the numbers were correct in the data export - the error was only in the formula.',
+            solution: 'Quantity__c was left blank on lines where a rep entered only a description. A blank is null, not zero, so Unit_Price__c * Quantity__c propagated a null error. Guarding the multiplication with ISPICKVAL fixed all 4,000 rows at once, with no data cleanup.',
+            steps: [
+              'Confirm the data is genuinely blank rather than zero: open a failing record and look at the field directly.',
+              'Wrap the arithmetic so the blank branch returns a value: IF(ISPICKVAL(Quantity__c), Unit_Price__c * Quantity__c, 0).',
+              'Save the formula once - Salesforce recalculates every record automatically, so there is no backfill to run.',
+              'Re-run the report. The #Error! column becomes numbers with no data migration.'
+            ],
+            gotcha: 'The obvious "fix" was to run a Data Loader job writing 0 into the blank quantities. That invented data - the rep genuinely did not enter a quantity - and it would have to be repeated after every import. Fixing the formula handles every future blank automatically.',
+            exam: 'Blank-versus-zero is the highest-yield formula distinction on the exam. ISBLANK and ISPICKVAL are the only two ways to test it, and a bare arithmetic expression between two fields is not a valid formula at all.'
           }
         ]
       },
@@ -1402,6 +1671,21 @@ const ACADEMY = [
               'For each rewrite, state which of IF / ISBLANK / ISPICKVAL / TEXT / CONCAT / & you used and why that one.'
             ],
             verify: 'B1: it saves as bare arithmetic but yields a null error when Quantity is blank — rewrite as IF(ISPICKVAL(Quantity__c), Unit_Price__c * Quantity__c, 0). B2: Quantity__c = 0 does not test for blank; a blank quantity is null, not zero, so the guard misses it — the ISPICKVAL version fixes it. B3: comparing a picklist to a string with = is unreliable; use ISPICKVAL(StageName) or ISBLANK. B4: two problems — Amount is Currency so it cannot be concatenated, and & handles only two operands (use CONCAT or nest &). B5: a blank Expiry_Date__c makes the comparison behave unexpectedly; guard with NOT(ISPICKVAL(Expiry_Date__c)) first. B6: the subtraction yields a number so TEXT is unnecessary, and + does not concatenate text — use & or CONCAT.'
+          },
+          {
+            t: 'case',
+            title: 'The discount formula that would not compile',
+            org: 'Brightline Equipment',
+            problem: 'Sales Ops wanted Discounted_Amount__c on Opportunity: Amount minus a discount percentage. The formula Amount - Amount * Discount_Percent__c / 100 was rejected by the editor with no useful error message.',
+            solution: 'Amount is a Currency field, and Currency cannot be referenced directly in a formula at all. The workaround is two steps: a helper Number field that exposes the currency as a number, then the real Currency formula that uses the helper.',
+            steps: [
+              'Create Amount_As_Number__c (Number, formula) on Opportunity reading the currency amount as a plain number.',
+              'Create Discounted_Amount__c (Currency) using Amount_As_Number__c and Discount_Percent__c, then format the result as currency.',
+              'Set the formula return type to Currency on the second field so reports group and total it correctly.',
+              'Never try to concatenate the currency into a text label - a helper is required there too.'
+            ],
+            gotcha: 'The error message does not say "Currency is not allowed here". People assume their syntax is wrong and rewrite the same expression five different ways. Knowing Currency, Text Area and Rich Text are the three types a formula cannot touch saves the whole afternoon.',
+            exam: '"Which field type cannot be used in a formula?" is a direct question, and the helper-field two-step pattern is the correct answer to any requirement that needs a currency value inside a formula.'
           }
         ]
       },
@@ -1459,6 +1743,21 @@ const ACADEMY = [
               'List the three formulas that would break if their referenced field were renamed, and say why.'
             ],
             success: 'Nine correct, blank-safe formulas with stated return types, including one helper-field workaround and one nested IF, plus an explicit note on which tool replaces the one formula you did not build. All declarative.'
+          },
+          {
+            t: 'case',
+            title: 'The field the reports could not see',
+            org: 'Brightline Equipment',
+            problem: 'Leadership asked for a report of open Opportunities bucketed by a new Priority__c text field. The field existed on the record page but would not appear in the report grouping picker.',
+            solution: 'Priority__c was a formula, and formula fields ARE reportable - but this one returned different TYPES across its nested IF branches. A formula returning mixed types cannot be grouped reliably, so the field was split into a Text formula returning one consistent type.',
+            steps: [
+              'Confirm the field exists and is populated by opening the record - if it renders there, the field is fine.',
+              'Check the return type: a formula declared as Text but sometimes returning a number is the failure mode.',
+              'Make every branch return the same type, or wrap numbers with TEXT().',
+              'Recheck the grouping picker - the field appears once the type is consistent.'
+            ],
+            gotcha: 'The team had also considered building Priority__c as a flow-updated field, which would have been filterable but would have gone stale whenever Amount was edited without a save triggering the flow. A formula is always current because it recalculates on every save.',
+            exam: 'The general principle worth memorising: use a FORMULA when the value is derived from the same record and must always be true. Use a FLOW only when something must HAPPEN. Deriving is not happening.'
           }
         ]
       }
@@ -1585,6 +1884,21 @@ const ACADEMY = [
               'For R3, explain why a roll-up is not a validation rule, and what it is instead.'
             ],
             verify: 'R1 = SUM over Line_Total__c, return type Currency or Number. R2 = COUNT(Distinct) over the Product lookup. R3 = plain COUNT. R4 = MAX over Contract StartDate (MAX for "most recent"), return Date. R5 = MIN over the delivery date, return Date. On deletion the roll-up recalculates immediately, so the value stays correct; orphan records would be silently EXCLUDED, making the total wrong with no error — which is why orphan records stay off. R3 is a roll-up, not a validation rule: a roll-up computes a value, a validation rule rejects a save. A rule would use the roll-up count inside its error condition.'
+          },
+          {
+            t: 'case',
+            title: 'The total that never matched the invoice',
+            org: 'Brightline Equipment',
+            problem: 'Customer service kept promising order totals that did not match the invoices. They were adding Quote_Line__c.Line_Total__c by hand in a spreadsheet, and the spreadsheet disagreed with finance by small amounts every month.',
+            solution: 'A roll-up summary field on Quote_Request__c summing Line_Total__c across its Quote_Line__c children. Salesforce recalculates it whenever any child line is created, edited or deleted, so it is correct at all times and appears in reports and list views for free.',
+            steps: [
+              'Create Quoted_Total__c on Quote_Request__c as a Roll-up Summary, SUM function, filtered to nothing (all lines).',
+              'Choose Line_Total__c on Quote_Line__c as the source value.',
+              'Add it to the Quote_Request__c page layout and to the list view columns reps read.',
+              'Spot-check three quotes by comparing the roll-up against the sum of their lines.'
+            ],
+            gotcha: 'The team first tried a formula on the parent. A formula cannot reach an unknown number of children - it reads the record and at most one level of lookup fields. Rolling up an unknown number of children is exactly what a roll-up summary exists for, and no amount of formula nesting will get you there.',
+            exam: 'Sum across children is a roll-up, never a formula. The exam pairs this with the type restrictions on formulas precisely to see whether you keep the two straight.'
           }
         ]
       },
@@ -1633,6 +1947,21 @@ const ACADEMY = [
               'For each rule, state whether it fires on create, on update, or both, and which guard survives a blank field.'
             ],
             verify: 'V1: OR(Quantity__c <= 0, Quantity__c > 10000), message "Quantity must be greater than zero and no more than 10,000." V2: OR(ISNULL(Opportunity__c), Opportunity__c.StageName = "Closed Lost"), message "A discount requires an Opportunity that is not Closed Lost." V3: AND(Request_Status__c = "Submitted", Line_Count__c = 0) using the roll-up from 7.1, message "A quote request cannot be Submitted without at least one line." V4: AND(ISPICKVAL(StageName), StageName = "Closed Won", ISPICKVAL(CloseDate), CloseDate < TODAY()), message "A Closed Won Opportunity must have a Close Date that is not in the past." V5: ISPICKVAL(Unit_Price__c) && Unit_Price__c <= 0, message "Unit price must be greater than zero." V6: AND(Account_Status__c = "Inactive", Open_Opportunity_Count__c > 0) with a cross-object roll-up. V1, V2, V4, V5 fire on both create and update; V3 and V6 also fire on both. Guards: ISNULL for lookups, ISPICKVAL for picklists/dates/currency.'
+          },
+          {
+            t: 'case',
+            title: 'The discount rule nobody could satisfy',
+            org: 'Brightline Equipment',
+            problem: 'Sales asked for a rule: a discount above 25% must be approved by the VP before it saves. The first implementation was a validation rule that simply blocked the save above 25%.',
+            solution: 'A validation rule that blocks the save is only half the requirement - it says no but offers no route forward. Keep the validation rule to enforce the ceiling, and add an approval process for the exception path so a rep can submit and a VP can approve.',
+            steps: [
+              'Write the validation rule with a readable error message, not Error condition 1.',
+              'Choose the error location deliberately - a rule on Discount_Percent__c highlights the field, a rule on a different field shows a page-level message.',
+              'Build the approval process for the above-threshold case with entry criteria on the discount.',
+              'Test both branches: a compliant save, and a non-compliant one that must be blocked.'
+            ],
+            gotcha: 'Their error message read "Error Condition 1" because they never edited the default. Users submitted tickets asking what it meant. A validation rule with a message that names the field, the limit and the next step is half the feature.',
+            exam: 'Validation rules reject a save. Approval processes route a decision. If the requirement contains the word approved, you need an approval process - the validator alone will be marked wrong even though it prevents the bad data.'
           }
         ]
       },
@@ -1677,6 +2006,21 @@ const ACADEMY = [
               'State what happens to each roll-up if orphan records were enabled, and whether you recommend it.'
             ],
             success: 'A written integrity engine: six roll-ups with justified aggregates, eight complete rules with messages, one duplicate rule, and an honest list of what remains uncatchable declaratively. No Apex anywhere.'
+          },
+          {
+            t: 'case',
+            title: 'Automating a number that never changed',
+            org: 'Brightline Equipment',
+            problem: 'Is_Overdue__c on Quote_Request__c was built as a record-triggered flow so the checkbox would flip when the expiry date passed. Six months on, 400 quotes were showing the wrong answer.',
+            solution: 'Replaced with a formula checkbox. A formula is evaluated on every save, so it cannot go stale, needs no automation to maintain, and is immediately filterable in reports and list views.',
+            steps: [
+              'Classify the requirement: is it a value derived from the record, or an action that must happen?',
+              'For a derived value, build a formula and delete the flow.',
+              'Confirm the field is now available as a report filter, which the flow-maintained version never was.',
+              'Delete the now-redundant flow and check nothing else referenced it.'
+            ],
+            gotcha: 'The flow only ran on record save. A quote that simply sat there past its expiry date never re-saved, so the checkbox stayed FALSE forever. This is the classic staleness trap with trigger-based automation: automation runs when something happens, a formula is true whenever the record is read.',
+            exam: 'Derived value on the same record means formula. Anything that must send, create, update or notify is automation. Getting this boundary right is most of the Business Logic domain.'
           }
         ]
       }
@@ -1811,6 +2155,21 @@ const ACADEMY = [
               'For N1 and N5, name what a record type does that a picklist does not.'
             ],
             verify: 'N1 = RECORD TYPE (different layout + approval process per category is the definition of record type). N2 = BUSINESS PROCESS (a guided path on one object; a record type per stage would be absurd). N3 = APP (menus differ by user group — apps, not record types). N4 = PICKLIST (one field, used for filtering; no different handling needed). N5 = RECORD TYPE (different fields visible per team = different page layouts). What a record type does that a picklist cannot: assign a whole page layout, drive a business process, and drive assignment rules — a picklist value only stores data.'
+          },
+          {
+            t: 'case',
+            title: 'Five record types for one object',
+            org: 'Brightline Equipment',
+            problem: 'Support created a record type per customer segment - Retail, wholesale, distributor, government, OEM - so each segment got its own layout and picklist values. Six months on, no one could report on Opportunities across segments and new reps could not tell which type to use.',
+            solution: 'Collapsed to two record types that reflect a genuine difference in PROCESS (Standard Sale, Contract Sale), and moved the segment distinction into a picklist field. Reporting and filtering became possible because segment was a value on one object rather than a record type on five.',
+            steps: [
+              'Ask what actually changes between the variants: different fields, different picklists, different approval path, or just a different label?',
+              'If only values differ, that is a picklist field, not a record type.',
+              'Reserve record types for a real process fork with its own layout and business rules.',
+              'Re-point existing records and verify the reports now work across all of them.'
+            ],
+            gotcha: 'Record types fragment your data. Every report, list view and flow has to be built per type, and types multiply quietly until nobody can build anything new. This is the single most common record-type mistake, and the exam tests the distinction between a process difference and a data difference.',
+            exam: 'When the requirement says the layout should show different fields depending on a value already on the record, the intended answer is Dynamic Forms - not record types. Record types are for when you genuinely cannot share one layout.'
           }
         ]
       },
@@ -1858,6 +2217,21 @@ const ACADEMY = [
               'Explain the difference between a business process and a flow in one sentence each.'
             ],
             verify: 'Two record types each with an assigned layout. Fields differing: Credit Terms options and (say) an "Employees" or "Contract Terms" field relevant to enterprise. Credit Terms restriction uses a **picklist value set scoped per record type**. Required-for-one-type is done with a **business rule** scoped to that record type (a validation rule applies to all types unless further conditioned). A record type with no layout assigned falls back to the object default layout. A business process is a visual path/stage guide on the record; a flow is action automation that sends emails, updates records and runs logic.'
+          },
+          {
+            t: 'case',
+            title: 'The picklist that let reps invent territories',
+            org: 'Brightline Equipment',
+            problem: 'Territory__c on Opportunity was a free-text field. Reps typed "North East", "NE", "NorthEast" and "Northern", so territory reporting returned nine regions instead of three and the dashboard was useless.',
+            solution: 'A restricted picklist with a value set, restricted further by record type to the territories that region is allowed to sell into. Free text becomes a closed list, and the restricted picklist becomes a business rule enforced by the platform.',
+            steps: [
+              'Replace the text field with a restricted picklist and define the value set.',
+              'Set field-level restrictions per record type so each region sees only its own values.',
+              'Clean up the existing free-text values before switching, or the existing rows will not match the picklist.',
+              'Confirm new values can only be added by an admin, not by users.'
+            ],
+            gotcha: 'Switching a text field to a picklist fails on every record whose value is not in the value set - the deploy or save is rejected. Deduplicate the data first. This ordering dependency is what makes it a genuine gotcha rather than a settings change.',
+            exam: 'Restricted picklists are a business process tool, not just a data-quality one. The order of operations - value set, then restrictions, then data cleanup - is examinable.'
           }
         ]
       },
@@ -1892,6 +2266,21 @@ const ACADEMY = [
               'Describe how to retire a record type later without breaking historical data.'
             ],
             success: 'A written record-type architecture: which objects get types and why, per-type layouts, picklist restrictions, the required-for-one-type mechanism, a business-process sketch, the sharing note, and the retirement plan. All declarative.'
+          },
+          {
+            t: 'case',
+            title: 'The layout that grew to nine tabs',
+            org: 'Brightline Equipment',
+            problem: 'The Opportunity page layout had accumulated nine sections and four tabs over two years. Reps complained the fields they needed daily were always below the fold, and every new field request made it worse.',
+            solution: 'One page layout per genuinely different process, with a deliberate section order: identity and amount high, history and detail low. Fields that only matter to one record type moved into that record type\'s layout instead of cluttering the shared one.',
+            steps: [
+              'Decide the section order by how often the field is read, not by when it was added.',
+              'Move detail fields to the bottom - they can be scrolled to, they cannot be un-noticed.',
+              'Split only where the process genuinely differs; otherwise one layout with Dynamic Forms visibility rules.',
+              'Prune fields nothing reads. Most long-lived layouts are carrying dead weight.'
+            ],
+            gotcha: 'Page layout changes do not affect Classic pages, so teams are often surprised that Classic users see the old arrangement. Conversely, hiding a field on a layout does not remove it from the API - it is still editable via Data Loader, so a hidden sensitive field still needs field-level security.',
+            exam: 'Layout controls presentation only. Removing a field from a layout is not a security control; field-level security is. The exam pairs those two concepts deliberately.'
           }
         ]
       }
@@ -2029,6 +2418,21 @@ const ACADEMY = [
               'For F2 and F5, explain what happens if you drop ISCHANGED().'
             ],
             verify: 'F1: record-triggered, Created only, entry `NOT(ISBLANK(Country))`. F2: record-triggered, Created and Updated, `AND(ISCHANGED(Request_Status__c), Request_Status__c = "Submitted")`. F3: BEFORE-save record-triggered, Created and Updated, entry `Request_Status__c = "Submitted"`, then a Decision checking `Line_Count__c = 0` leading to a Fault with the message. F4: scheduled flow, scheduled once daily at 2am, Get Records where `Request_Status__c = "Submitted"` and `Request_Submitted_Date__c <= TODAY() - 7`. F5: record-triggered, Created and Updated, `AND(ISCHANGED(Account_Status__c), Account_Status__c = "Inactive")`. Without ISCHANGED in F2, saving the record for any reason — even an unrelated field edit, or a flow updating another field — retriggers the assignment. In F5 the owner would be notified on every save of an inactive Account.'
+          },
+          {
+            t: 'case',
+            title: 'Four flows doing one job',
+            org: 'Brightline Equipment',
+            problem: 'Sales Ops reported that lead assignment was "random". Investigation found four separate record-triggered flows on Lead, each with its own criteria, each assigning to a different queue - built over two years by three different people.',
+            solution: 'Consolidated into one record-triggered flow with a single decision chain that evaluates source, then region, then territory, and falls back to the default queue. Assignment became predictable and there was one flow to maintain instead of four.',
+            steps: [
+              'List every automation currently touching the object. Use Setup > Flow, not memory.',
+              'Decide which one is the decision authority and delete or narrow the others.',
+              'Order the decisions from most specific to least, with a final default path so no lead is left unassigned.',
+              'Test with one record per branch, plus one that matches nothing.'
+            ],
+            gotcha: 'Multiple flows on the same object run in an order that is not obvious and not something to rely on. When two both assign, the outcome is effectively arbitrary. Automation sprawl is a design problem, not a bug - and consolidating is often the real answer to "it is not working".',
+            exam: 'Screen flow is for user-initiated work with screens. Record-triggered is for automatic before-save and after-save. Scheduled is for batch at a set time. Choosing the wrong one for the job is a common wrong answer.'
           }
         ]
       },
@@ -2083,6 +2487,21 @@ const ACADEMY = [
               'For E4, explain why a before-save flow is the only one that can do this.'
             ],
             verify: 'E1: Get Records (lookup the Account) → Decision (check Credit_Terms__c = "Net 90") → Create Records (the task). The Get is the lookup, the Decision is the branching — two different elements. E2: Get Records (all Draft lines older than 30 days) → Update Records. No loop needed. E3: Get Records (the child lines) → Loop → Update Records (set Request_Status__c on each). The element that repeats is Loop, and the limit is the 50-element cap: one Loop iteration plus one Update per line means roughly 48 lines max, so this design only works for a quote with a small number of lines. For a large request, aggregate with a roll-up on the parent instead. E4: a Fault element, which only functions in a before-save record-triggered flow — after save the record is already committed and cannot be rejected.'
+          },
+          {
+            t: 'case',
+            title: 'The approval email that never arrived',
+            org: 'Brightline Equipment',
+            problem: 'When a rep submitted a Quote_Request__c for approval, no notification reached the approver. The approval itself worked - the record did enter Submitted status - but the approver only found it by opening the approval list every morning.',
+            solution: 'Added an action in the flow that fires when the record enters the waiting-for-approval state, creating a Task and emailing the assigned approver. The notification is part of the same transaction as the status change, so it cannot drift out of sync.',
+            steps: [
+              'Set the flow to start on the status change that indicates approval is required, not on every save.',
+              'Add an action to notify the approver, choosing email plus a Task for a durable record.',
+              'Resolve the approver from the record rather than hardcoding a user, so it follows reassignment.',
+              'Test the rejection path too - the rep must be told, not just the approver.'
+            ],
+            gotcha: 'They first tried to trigger on every record save, which meant an email on every keystroke-level edit during an approval and users turned notifications off entirely. Trigger on the meaningful transition, not on save. A flow that emails too much gets muted, and then it is worse than no automation at all.',
+            exam: 'Actions in a flow - create record, update record, email, task - are what make it do something. The exam asks which action type matches the requirement: send a message is an email action, create a follow-up is a Task, update a related record is an Update action.'
           }
         ]
       },
@@ -2131,6 +2550,21 @@ const ACADEMY = [
               'For each flow, note one scenario where the flow could loop or run twice, and the guard you added.'
             ],
             success: 'Five fully specified flows with exact triggers, entry conditions and element lists; explicit self-retrigger guards; a Roll Back Records rationale; a justified autolaunched flow; and a testing plan that includes failure paths. No workflow rules used as a shortcut, no Apex.'
+          },
+          {
+            t: 'case',
+            title: 'The nightly job that chased its own tail',
+            org: 'Brightline Equipment',
+            problem: 'A scheduled flow marked overdue Quote Requests as Closed every night at 2am. Users then manually reopened them during the day, and the next night it closed them again. The report was right for eight hours a day and wrong for sixteen.',
+            solution: 'Stopped writing status at all. Expiry_Status__c became a formula derived from Expiry_Date__c and TODAY(), so it is correct at the moment of reading rather than correct only after the nightly batch. The scheduled flow was deleted.',
+            steps: [
+              'Decide whether the value is a FACT about the record or an EVENT that happened.',
+              'A fact derived from dates is a formula - always current, no job to run, filterable in reports.',
+              'An event (a notification sent, a record created) is automation and needs a trigger.',
+              'Delete the scheduled flow and verify no report depended on the job having run.'
+            ],
+            gotcha: 'Scheduled flows are for batch work - recalculating aggregates, generating records, sending digests. They are the wrong tool for keeping a field in sync, because the field is wrong between runs. This is the most common misuse of scheduled paths.',
+            exam: 'If the requirement says the value must be correct whenever a user looks at it, it is a formula. If it says something must happen on a schedule, it is a scheduled flow.'
           }
         ]
       }
@@ -2277,6 +2711,21 @@ const ACADEMY = [
               'For A3, state how many custom fields you add and why more than one.'
             ],
             verify: 'A1: object Discount_Request__c, entry criteria none, criteria AND(Amount__c <= 5000, Amount__c > 0), approver = specify the user related to the record (the Opportunity Owner, ${!User.Id}), approval layout with Amount__c and a comments field, final approver yes (one step is final). Reject then edit then resubmit is allowed because the criteria depend on fields the requester can change. A2: object Quote_Request__c, entry criteria none, criteria Total_Value__c > 100000, approver = specify the user (VP Finance), approval layout, final approver yes. The extra Phase 7 field is the SUM roll-up Total_Value__c — without it the threshold would drift from the real quote value. A3: object Quote_Request__c, criteria Total_Value__c > 250000, three steps each with its own approver, and three separate comment fields (Approval_1_Comments__c, Approval_2_Comments__c, Approval_3_Comments__c) plus a Final_Approver__c. More than one field because a single shared comments field cannot hold three independent approvers\' decisions — the second approver would overwrite the first.'
+          },
+          {
+            t: 'case',
+            title: 'Three approvers, one decision',
+            org: 'Brightline Equipment',
+            problem: 'Discounts over 25% needed sign-off. The first design built three separate approval processes - one for 25%, one for 40%, one for 60% - which meant reps had to guess which queue to submit to and approvers rarely knew their threshold.',
+            solution: 'One approval process with entry criteria on Requested_Discount__c, and the step assigned dynamically to the approver for that band. One queue, one process, and the criteria decide who acts.',
+            steps: [
+              'Build ONE approval process on the object with entry criteria that capture the whole range.',
+              'Assign the step to a dynamic user reference rather than a fixed person, so it survives people leaving.',
+              'Set "allow submission" so the rep can save while waiting instead of being locked out.',
+              'Decide what approval actually CONTROLS - which field or status cannot change until it is approved.'
+            ],
+            gotcha: 'Without allow submission, the rep cannot save edits to a record that is locked in an approval, and they work around it by keeping data in email or spreadsheets. Always enable it unless there is a specific reason not to.',
+            exam: 'Approval processes are built from named components: process definition, steps, step approvers, entry criteria, and field updates. A question that lists these is asking you to identify which component is missing.'
           }
         ]
       },
@@ -2336,6 +2785,21 @@ const ACADEMY = [
               'L10: While an approval is pending, the submitter can still edit the approval layout fields.'
             ],
             verify: 'L1 FALSE — only fields on the approval layout are locked; everything else stays editable. L2 TRUE — the core purpose of final approval. L3 TRUE — rejection exists so the submitter can correct and resubmit; that is the reason the fields unlock. L4 FALSE — three submissions maximum, after which only recall or cancel. L5 TRUE — the standard limit, counted across all resubmissions. L6 FALSE — final approval is final; the only way out is an admin change or a new process. L7 TRUE — this is the audited override path, and it is why "locked" never means "uneditable forever". L8 TRUE — submitting runs the validation rules, so a record that cannot be saved cannot enter approval. L9 FALSE — approval does not re-run validation rules. L10 FALSE — while pending, the approval layout fields are read-only; only rejection releases them.'
+          },
+          {
+            t: 'case',
+            title: 'The recall that reset the approval',
+            org: 'Brightline Equipment',
+            problem: 'A rep recalled an approved discount request because the amount was wrong, edited it, and resubmitted - and it went straight back to the VP with no trace that it had already been through once. Finance found two approval records for one quote.',
+            solution: 'Enabled recall on the approval process so a submitter can withdraw a pending request, and required the resubmission to create a fresh entry. Separately, they added a validation rule on Requested_Date__c that stops an already-approved request from having its amount edited at all.',
+            steps: [
+              'Enable Recall if a submitter legitimately needs to withdraw a pending request.',
+              'Understand what each action does: submit enters the process, approve advances it, reject exits it, recall withdraws a pending one, cancel removes an in-progress one.',
+              'Add a validation rule so approved data cannot be silently changed underneath the approver.',
+              'Decide who can recall - submitter only, or anyone with edit access.'
+            ],
+            gotcha: 'Recall only works while a request is PENDING. Once the final step approves, the process is complete and nothing can recall it - the record is simply editable again. Teams who expect recall to undo a completed approval are surprised every time.',
+            exam: 'Know the five lifecycle actions precisely: Submit, Approve, Reject, Recall, Cancel. Questions that describe a scenario and ask which action fits are testing exactly this vocabulary.'
           }
         ]
       },
@@ -2383,6 +2847,21 @@ const ACADEMY = [
               'Write the anti-pattern warning: two things a flow must never do in relation to an approval process.'
             ],
             success: 'A written approval architecture: three processes fully specified, a locking policy, a lifecycle table, an ordering decision, one supporting flow with an exact entry condition, and the two anti-patterns. All declarative, no Apex.'
+          },
+          {
+            t: 'case',
+            title: 'Approval that also had to notify',
+            org: 'Brightline Equipment',
+            problem: 'Once a contract was approved, the customer contact had to be emailed automatically with the signed copy. The first attempt tried to do this inside the approval process field update, which could only update fields - it could not send anything.',
+            solution: 'The approval process owns the decision and sets the status. A record-triggered flow starting on that status change owns the notification. Each tool does the one thing it is actually good at.',
+            steps: [
+              'Use the approval process for the decision and for updating the fields that record the outcome.',
+              'Use a flow triggered by the resulting status change for notifications and follow-up tasks.',
+              'Do not try to make an approval process send an email - it cannot.',
+              'Keep the two separate so neither has to change when the other does.'
+            ],
+            gotcha: 'Trying to bolt side effects onto the approval process leads to a tangled design where the notification lives in a validation rule or a workflow rule nobody can find. The cleaner decomposition - approval decides, flow acts - is also what the exam expects when a scenario needs both a decision and an action.',
+            exam: 'Field updates in an approval process change fields on the record. Anything that sends, creates or updates ANOTHER record needs a flow. That boundary is the whole question in scenarios like this one.'
           }
         ]
       }
@@ -2525,6 +3004,21 @@ const ACADEMY = [
               'For W2, explain why the evaluation criteria matters more than the criteria here.'
             ],
             verify: 'W1: evaluation = when a specific field is edited (StageName); criteria = StageName = "Closed Lost"; action = Field Update, Closed_Lost_Reason__c = "Lost on price". Field Update is the right action; a flow would also work but is heavier. W2: evaluation = when Discount_Percent__c is edited; criteria = Discount_Percent__c > 20; action = Email Alert to the VP. The evaluation criteria matters more because without it the rule re-evaluates on every save, so a rep editing a note while the discount stays at 25% triggers another email. W3: evaluation = when created; criteria = Request_Status__c = "Submitted"; action = Task with owner = Opportunity owner, due = TODAY() + 2. An approval process email/task would be better since it fires per approval step. W4: evaluation = when created; criteria = always true (blank); action = Update Record on the parent. This is the clearest case for a flow in modern Salesforce: a before-save flow on Quote_Line__c updating the parent, or better a roll-up on the parent (Phase 7) instead of copying a date at all.'
+          },
+          {
+            t: 'case',
+            title: 'The automation that kept re-running',
+            org: 'Cardinal Bay Recruitment (specialist recruiter, 45 staff)',
+            problem: 'A rule flagged a candidate as Rejected and stamped the date the moment the status became Rejected. It had no trigger scope set, so it fired on every subsequent save of that record, and the field update it performed caused another save. Candidates started opening with a concurrent-access error and consultants were copying details into a local spreadsheet to get work done, which is how a CV ended up with the wrong owner.',
+            solution: 'The rule was scoped to run only when the status field is edited, which is what the business actually meant. The timestamp is now taken from the record\'s last modified date in a formula field, so it is always right without anything writing it.',
+            steps: [
+              'Decide the trigger scope first: on every edit, only when created, or only when a specific field is edited.',
+              'Prefer a formula field for anything that is derived from the record, so nothing has to write it.',
+              'Where a rule must write, scope it to the field that justifies the write.',
+              'Test on a record that gets saved repeatedly before you let real candidates near it.'
+            ],
+            gotcha: 'A rule on every edit that performs a field update can loop. Salesforce applies recursion protection so it stops rather than running forever, but the symptom users see is a locked record and a concurrent-access error, not a friendly message about the loop.',
+            exam: 'Workflow rules evaluate criteria then act. Trigger scope - every edit, on creation, or on a field edit - is a named part of the definition and choosing it wrongly is a common question.'
           }
         ]
       },
@@ -2585,6 +3079,21 @@ const ACADEMY = [
               'Explain the difference between the "on create" and "on assignment" auto-response triggers, and the risk of enabling both.'
             ],
             verify: 'Order: L-A (narrowest), L-B, L-C as the default assignment. L-A: entry criteria record type = Enterprise, criteria Country__c = "France", assign to the Jean Moreau user. L-B: entry criteria region = EMEA, criteria Country__c != "France" OR record type != Enterprise, assign to the EMEA Inbound queue. L-C: default assignment, Unassigned queue. First match wins: a French Enterprise lead matches L-A and stops. If the order is wrong — L-B before L-A — every French lead lands in the queue and L-A becomes dead code with no warning. The permission requirement: a sharing rule granting queue members read (or read/write) on Lead, scoped to records owned by the queue. Without it the members see an empty queue. Auto-response: use the "assigned to a queue or user" trigger because the requirement is to notify whoever ends up owning it; on-create fires for every lead regardless of routing. Enabling both sends two emails to the same person — choose the one that matches the business need, and note that on-create also fires when the owner has not been set at all.'
+          },
+          {
+            t: 'case',
+            title: 'Every enquiry owned by the same person',
+            org: 'Halden Facilities Services (commercial cleaning and maintenance, 800 field staff)',
+            problem: 'Assignment rules sent every website enquiry to the duty manager, whoever happened to be on that week. The person who had actually spoken to the customer was not the owner, so could not see the record, and the record sat with someone in a different building for two days. Response times got worse every quarter and the duty manager stopped opening the objects at all.',
+            solution: 'Assignment rules keyed on postcode prefix, sending each enquiry to the regional team queue. A before-save flow then reassigns to a named individual inside that team when someone is on leave. Assignment decides the bucket, the flow refines it.',
+            steps: [
+              'Key assignment rules on a field the value actually carries, such as postcode prefix or region, not on who created the record.',
+              'Assign to a queue rather than a person, so absence does not need a special case.',
+              'Give every queue an owner, or nothing in it ever gets picked up.',
+              'Use a before-save flow for the exceptions that assignment rules cannot express.'
+            ],
+            gotcha: 'Assignment rules evaluate on creation only. They will not re-route a record when the thing that would change the answer changes later, and a queue that has no owner is a place records go to be ignored rather than worked.',
+            exam: 'Assignment rules route records on create, queues hold work that needs an owner, and auto-response rules send the email. Knowing which of the three a scenario is describing is the whole question.'
           }
         ]
       },
@@ -2630,6 +3139,21 @@ const ACADEMY = [
               'State the two things you will never build with a workflow rule today, and what you use instead.'
             ],
             success: 'An audit plan, four diagnosed legacy patterns with modern replacements, a full routing design with ordering rationale, an access rule, three migration decisions with reasons, and a migration testing note. Recognises that workflow rules are legacy: manage and audit them, but build new work in flows.'
+          },
+          {
+            t: 'case',
+            title: 'Two automations fighting over one field',
+            org: 'Sunward Coastal Transport (coastal haulage, 120 staff)',
+            problem: 'A legacy workflow rule and a newer flow both updated the delivery status. The rule fired on every edit, the flow fired on a status change, and on the saves where both matched, the value moved twice and the operations team watched status go backwards from Delivered to Out for Delivery. It took three days to trace, because each automation looked completely correct in its own history.',
+            solution: 'One owner per field. The flow took the status and the notification; the workflow rule was migrated and deleted once its last use was confirmed gone. They added a line to the design notes naming the field owner, so the next person adding a third automation would meet it before writing any code.',
+            steps: [
+              'List every field that more than one automation writes to, before adding anything new.',
+              'Give each field exactly one owner and say which one in writing.',
+              'Migrate the legacy automation deliberately rather than leaving it running beside the replacement.',
+              'Check the automation history on a record after each change instead of trusting the configuration screens.'
+            ],
+            gotcha: 'Two automations writing one field is the hardest class of bug to diagnose, because each history entry is individually correct and only the sequence is wrong. Audit field ownership before you build, not after it misbehaves.',
+            exam: 'Workflow rules are legacy and cannot do what flows do. A scenario needing a loop, a related-record update or a scheduled path is a flow scenario, and the exam expects you to say so.'
           }
         ]
       }
@@ -2793,6 +3317,21 @@ const ACADEMY = [
               'Add a Flow component running the Phase 9 credit-review flow, and explain why a Flow component rather than a Visualforce page.'
             ],
             verify: 'Components in order: Record Highlights Panel (Amount, StageName, CloseDate, Next Step, Account name) → Accordion with two Tabs → Tab 1 "Details" holds Record Details (fields grouped into Opportunity Details, Commercials, System) → Tab 2 "Activity" holds Related Lists and the Phase 9 Flow → Rich Text with the stage guidance → Utility Bar with Notes, Files and Tasks. Highlights Panel rather than Record Details because it pins the handful of fields that matter on every visit, above the fold, and stays visible while scrolling; Record Details is for the full field set in sections. Related lists: Opportunities on the Account (filtered to Open stage), Quote Requests, and Discount Requests. Activation: Opportunity, all record types, replace the default page — because managers need the same view regardless of New Business or Renewal. Quick Actions: "Submit for Approval" (launches the Phase 10 process) and "Log a Call" (Phase 11 task flow), both on the record page header. Flow component rather than Visualforce because it runs the declarative flow inline with no code, no iframe, no platform limits to manage, and it renders natively on mobile.'
+          },
+          {
+            t: 'case',
+            title: 'Two activations of the same page',
+            org: 'Marlow & Finch Retail (garden centre chain, 14 stores, 400 staff)',
+            problem: 'A Lightning page for the store record was activated once during testing and again after the changes were signed off. In production, staff opened a store record and sometimes saw the new layout and sometimes the old, depending on which activation their session happened to pick. Nobody could state with confidence which version was live, and two of them had been editing test copy against the wrong one for a fortnight.',
+            solution: 'One active version at a time. The test activation was deactivated, the approved version stayed active, and the release note now names the version number so there is never a question about what is live.',
+            steps: [
+              'Build and test against a preview or a sandbox activation rather than activating in production to look at it.',
+              'Activate once per release, after sign-off.',
+              'Deactivate the previous version in the same sitting - they do not replace each other.',
+              'Record the active version number in the release note.'
+            ],
+            gotcha: 'Activating a new version does not deactivate the old one. Both stay active, the org resolves between them unpredictably, and the only way out is to go and deactivate the one you did not want. This is the most common Lightning page defect there is.',
+            exam: 'A Lightning page has to be activated before anyone sees it, and multiple active versions is a real failure mode. Know that activation is a step you perform, not something that happens on save.'
           }
         ]
       },
@@ -2856,6 +3395,21 @@ const ACADEMY = [
               'For the mobile experience, name two things you would design differently from desktop.'
             ],
             verify: 'Brightline Sales: standard navigation, app profile Internal. Items — standard tabs Accounts, Contacts, Leads, Opportunities; app page "Pipeline" hosting the Phase 3 dashboard; app page "My Day" with the Phase 9 task flows; Lightning page tab "Quote Builder" hosting the quote and line components; reports tab "Sales Reports". Brightline Service: standard navigation, app profile Internal, items restricted to Cases, Assets (custom object), Knowledge and a Service Reports tab — deliberately no Opportunities, so the sales pipeline is not visible to service users. The audience difference is focus: sales needs pipeline and quoting, service needs cases and assets. App profile controls the branding and the profile badge, and it determines whether the app is for internal staff or external (Experience Cloud) users. Utility bar: Log a Call, New Task, Notes and Files, plus the Approvals list. The two that matter most are Log a Call and Approvals — one is the daily action, the other is the daily queue. Quote Pipeline lives as an **app page**, because it is a dashboard-like destination with no record behind it; a Lightning page tab is only justified if it needs components no app page can host. Users are given the apps through **permission sets** — assign the permission set, never edit the profile, because profiles accumulate and permission sets are additive and reviewable. Troubleshooting: (1) is the page activated, and for which record type; (2) is the component\'s underlying object in the user\'s permission set; (3) can the user see the records the component queries, via sharing; (4) is the app assigned at all; (5) is the user in the right org and on the mobile app with a cache refresh. Mobile differences: a single column, so the Highlights Panel and one primary action must come first and everything else collapses into a section; and fewer utility bar items fit, so Log a Call and Approvals stay and Notes/Files move into the record panel.'
+          },
+          {
+            t: 'case',
+            title: 'The app that removed the tabs people needed',
+            org: 'Fenwick Community Health Trust (community clinic network, 300 clinical and admin staff)',
+            problem: 'A new app was built to give the intake team a clean workspace with only the objects they touch. Because an app only shows the tabs it contains, nobody on that team could see Patients at all. Managers arriving to check a record had to go through the app launcher every time, and the launchers search results were ordered differently, so they regularly opened the wrong record.',
+            solution: 'An app per role rather than one app for everyone, with a small shared tab set that every clinical app includes, and navigation left with the app launcher enabled so nobody is ever trapped inside an app.',
+            steps: [
+              'Decide who the app is for. One app for everybody ends up being a compromise that suits nobody.',
+              'List the tabs each role genuinely needs on day one, and resist adding the rest speculatively.',
+              'Keep the app launcher available so a user can always leave the app.',
+              'Keep a shared minimum tab set across the clinical apps so moving between roles does not lose anything.'
+            ],
+            gotcha: 'An app controls whether a tab is reachable at all. Remove a tab from the app navigation and it is not de-emphasised for users who stay in the app, it is gone - and the fix is in the app configuration, not the tab.',
+            exam: 'App, tab and navigation are one mechanism: a tab that is not in the app navigation cannot be reached from inside that app. That single relationship answers most questions on this topic.'
           }
         ]
       },
@@ -2905,6 +3459,21 @@ const ACADEMY = [
               'Write a troubleshooting decision tree with at least FIVE branches, for "the page looks wrong or empty for one user".'
             ],
             success: 'A complete App Builder specification: four pages with components and activation, three Quick Actions and one screen flow, the permission set, a mobile plan, and a troubleshooting tree. Everything achievable without code.'
+          },
+          {
+            t: 'case',
+            title: 'The action nobody could see',
+            org: 'Kestrel Facilities Maintenance (commercial maintenance, 250 field engineers)',
+            problem: 'An action for logging job completion was placed on the Lightning record page and worked perfectly for the two admins who tested it. Field engineers opened the same record and had no button at all. They kept the paper timesheet, the office keyed it in on Fridays, and two of the completed jobs were never logged because the sheet was lost.',
+            solution: 'The action was already on the page layout - what was missing was the permission set that makes an action visible. Once that was assigned, and dynamic visibility was set so the action only appeared while the job was In Progress, the button appeared for exactly the people who needed it.',
+            steps: [
+              'Confirm the action is placed on the page layout for the relevant record type.',
+              'Confirm the users hold the permission set the action is bound to - this is the usual reason a button is missing.',
+              'Use dynamic visibility so the action shows only when the action makes sense for the current status.',
+              'Check it on a phone as well, because engineers rarely open a laptop.'
+            ],
+            gotcha: 'Placing an action on a Lightning page layout does not make it appear. It is only visible to users holding the permission set it is bound to, and admins testing in their own profile will always see it whether or not it is bound to anything.',
+            exam: 'Three separate switches - page layout placement, permission set assignment, dynamic visibility. A question describing a button that does not appear is almost always about the permission set.'
           }
         ]
       }
@@ -3050,6 +3619,21 @@ const ACADEMY = [
               'For R3, name the exact tool and say why a dynamic form cannot do it.'
             ],
             verify: 'R1 RECORD TYPE + LAYOUT — the difference is structural by category, which is what record types are for; adding dynamic forms on top of per-type layouts is duplicate work. R2 DYNAMIC FORM — the condition is a field value on the record itself, which a layout cannot evaluate. R3 VALIDATION RULE — it must block a save, and a dynamic form is presentation only with no conditional requiredness. R4 DYNAMIC FORM — the condition is the current user and their permissions, invisible to a page layout. R5 SCREEN FLOW — multi-step with branching and record creation; a dynamic form has no wizard behaviour. R6 LIGHTNING PAGE — a dynamic form is a component inside a page, so hosting it with other components needs the page itself.'
+          },
+          {
+            t: 'case',
+            title: 'The form that asked for everything every time',
+            org: 'Halcyon Motor Insurance (broker, 180 staff)',
+            problem: 'Motor claims intake asked for a policy number, an incident date, a description, a fault determination, an excess waiver decision and three photographs on every claim, including straightforward glass replacements where four of those six questions are irrelevant. Handlers were spending most of a claim\'s handling time dismissing questions that should not have been there.',
+            solution: 'A dynamic form with a section per claim type. Selecting Glass reveals two sections and hides four; selecting Accident reveals all of them. Each section carries its own field visibility and its own required rules, so the validation is right for the path the user actually took.',
+            steps: [
+              'List the fields the intake team currently asks for, then mark each as always needed, sometimes needed, or never needed.',
+              'Find the one or two fields that decide the shape of the claim, and make those the branching fields.',
+              'Put each combination of answers into its own section rather than trying to reuse one section with conditions on every field.',
+              'Set required rules inside the sections rather than at the form level.'
+            ],
+            gotcha: 'A dynamic form reacts to values already on the record. If the field that drives the branching is empty, or sits in a later section the user has not reached, the form shows nothing and looks broken rather than dynamic.',
+            exam: 'Dynamic forms change what is visible and what is required, based on data on the record. They add no fields and no records, and that boundary is what the questions test.'
           }
         ]
       },
@@ -3116,6 +3700,21 @@ const ACADEMY = [
               'Explain how you would add the instructional text about the 15 percent discount policy.'
             ],
             verify: 'S1 "Opportunity Details": Name, StageName, Type, CloseDate, Next Step, Account. Always visible, no rule — no rule means no maintenance. S2 "Commercials": Amount, Discount_Percent__c, Credit_Terms__c, Pricebook2. Rule: OR(ISCHANGED-free, Record Type = "Enterprise", Amount > 100000) — ORed, because either condition alone is a legitimate reason to see commercial terms. S3 "Discount Authority": Approver__c, Authority_Notes__c. Rule: Discount_Percent__c > 15. Guidance text: "Discounts over 15% require Finance sign-off. Record the approver and the business reason before submitting." S4 "Margin": Cost_Margin__c, Margin_Percent__c. Rule on the current user\'s Finance permission set. S5 "Next Steps": Next_Step__c, Next_Step_Date__c. Rule: NOT(OR(StageName = "Closed Won", StageName = "Closed Lost")). Combination logic for S2 is OR because a big deal on an SMB account and a small deal on an enterprise account both need commercial terms; AND would hide them in both cases. Permissions: Brightline_Sales_User plus Brightline_Finance_User, with the Finance set gating S4. The field that errors without them is Cost_Margin__c — a finance-only field with no field-level security, which surfaces as a component error rather than a clean hide. Instructional text goes above S3 as a section-level block: "Policy: discounts above 15% are approved by Finance. Below 15% is your decision." It is instructional rather than guidance because it is a warning about the whole form, not an explanation of one section.'
+          },
+          {
+            t: 'case',
+            title: 'Required in a section nobody could reach',
+            org: 'Ashgrove Care Homes (12 residential homes, 700 staff)',
+            problem: 'A dependency-of-care form for new residents had "Primary Contact Relationship" marked required at the top, above the section that decides whether the resident has a family contact or a nominated individual. Staff filled in everything else, could not submit, and phoned the office to be told which answer was expected. The form had been live for six weeks before anyone moved the field.',
+            solution: 'The decision field was moved up into a section of its own, above everything that depends on it. The rest was split into three sections - family contact, nominated individual, court appointed - and each was given guidance text saying what evidence the office needed and where to send it.',
+            steps: [
+              'Put every field that other fields depend on in a section above the sections that use it.',
+              'Give each section a name that says which case it is for, so the user can tell which one they are in.',
+              'Add guidance text stating what evidence is needed and who to send it to.',
+              'Test the submit button on every path, not only on the default one.'
+            ],
+            gotcha: 'A required field that is not visible cannot be filled in, and the form will refuse to submit. Required-ness is not scoped to a section automatically - a field marked required at the form level still blocks the save even when the section holding it is hidden.',
+            exam: 'Sections and their rules control visibility and requiredness, and a required field inside a hidden section still blocks the save. That is the trap most questions in this area are built on.'
           }
         ]
       },
@@ -3173,6 +3772,21 @@ const ACADEMY = [
               'Explain the two failure modes you designed against, and what each produces for the user.'
             ],
             success: 'A five-section form with rules and guidance, a component layout with justified order, named permission sets, a Phase 7 rule-by-rule visibility audit, an action placement decision, a five-persona test plan, and the two failure modes named. All declarative.'
+          },
+          {
+            t: 'case',
+            title: 'The form on the page that was never saved',
+            org: 'Cawdor Freight Services (haulage, 70 staff)',
+            problem: 'A podamage report was built as a form embedded in the delivery record Lightning page. Drivers filled it in on depot wi-fi, the connection dropped, and closing the tab lost everything. Seven reports were re-entered from memory a week later and two were wrong - one of which sent an invoice to the wrong customer.',
+            solution: 'The report moved to its own screen flow launched from the record, with a confirmation screen and an explicit save and finish. Each submission is its own transaction, so a dropped connection loses one answer rather than a whole form, and the flow was laid out to work on a phone.',
+            steps: [
+              'Move the form into a screen flow rather than embedding it in a record page.',
+              'Give the flow a confirmation screen so the driver knows it committed.',
+              'Keep the submission short enough to finish in one go on a phone.',
+              'Launch it from the record so the driver never has to find it, but do not embed it.'
+            ],
+            gotcha: 'A form embedded in a record page lives inside that page\'s transaction. Nothing commits until the record itself is saved, so a dropped connection loses the whole form. A screen flow is a separate transaction with its own commit.',
+            exam: 'Screen flows are the modern home for forms. Knowing when a record-page form is the wrong choice is the point of the lesson, and the answer is always about the transaction.'
           }
         ]
       }
@@ -3301,6 +3915,21 @@ const ACADEMY = [
               'Explain why a Case, an Opportunity and an Account cannot all be secondary tabs of one primary tab.'
             ],
             verify: 'Three primary tabs, e.g. Leads, Opportunities, Quotes. For Opportunity: Account (split pane — parent and account are read together, one level of context), Quote Requests (three pane — parent left, quote list centre, selected quote right), Contacts (split pane). Subtabs inside the Account pane for related lists rather than another pane, because they are context rather than a parallel record to work. Pin Quotes by default, since that is where the queue is. Leads / Opportunities / Quotes cannot all be secondary tabs of one primary tab because a secondary tab set has a single parent record — a Lead and an Opportunity have no common parent, so there is nothing to sit beside.'
+          },
+          {
+            t: 'case',
+            title: 'Two panes and no way back',
+            org: 'Verity Claims Services (motor claims, 220 staff)',
+            problem: 'The claims team moved to a console app to get a queue and a record side by side, and handling time went up rather than down. Every record component they clicked opened in the primary pane and replaced the queue, so they lost their place, scrolled back to find where they were, and started work again.',
+            solution: 'A console navigation that declares the record pages as sub-pane components, so the queue stays on the left and the record opens beside it. Each pane got a back button, and the tab that was being used as a primary pane was moved into the console navigation.',
+            steps: [
+              'Decide what the handler is working from - usually a queue - and make that a console navigation item.',
+              'Declare the record pages as sub-pane components so they open beside the queue instead of replacing it.',
+              'Give every pane a way back, so a handler is never stranded one record deep.',
+              'Move the tabs that were opening in the primary pane into the console navigation.'
+            ],
+            gotcha: 'In a console app a tab that is not part of the console navigation still opens in the primary pane and replaces whatever was there. Which components are in the console navigation is the entire design, not a detail.',
+            exam: 'A console app needs the app, a console navigation and at least one sub-pane component. Anything outside the navigation behaves exactly as it would in any other app.'
           }
         ]
       },
@@ -3354,6 +3983,21 @@ const ACADEMY = [
               'Name one item you deliberately left OUT, and say what would justify adding it.'
             ],
             verify: 'Pipeline (app page, no record behind it), My Day (app page), Quote Builder (Lightning page tab from Phase 12), Opportunities and Accounts and Contacts (standard object tabs), Sales Reports (report tab). Utility bar takes Log a Call, New Task, Notes and Files — actions, not destinations, and each must work on whatever record is open. Workspace folders: SELL (Leads, Accounts, Contacts, Opportunities), QUOTE (Quote Builder, My Day), REPORT (Sales Reports). Left out: Cases, because Brightline has a separate Service app (Phase 12) — duplicating it here would give reps a tab they cannot use, and it would only be justified if reps genuinely triaged Cases, in which case it belongs in the Service app instead.'
+          },
+          {
+            t: 'case',
+            title: 'Four components on one screen',
+            org: 'Cassidy & Roe Supermarkets (12 stores, 600 staff)',
+            problem: 'One page carried the store record, twelve months of till reconciliation history, an approval action and a customer complaints list. On the thirteen-inch screen in the back office it was unusable, and the complaints list made the page take long enough to load that users reported it as "the page is broken" and started keeping their own notes.',
+            solution: 'Split by frequency of use. Record highlights and the approval action stayed on the page. Reconciliation history became a related list with a filter. Complaints moved to their own tab with its own layout, and the page load dropped to something usable on the back-office hardware.',
+            steps: [
+              'List every component on the page and mark how often each is actually used.',
+              'Keep the frequently used ones on the page and move the rest to related lists or their own tabs.',
+              'Check the page on the oldest screen the team actually uses, not on a new laptop.',
+              'Look at what each component costs to load before deciding it earns its place.'
+            ],
+            gotcha: 'Components on a page are not free. Each one is a separate request, and four heavy components make a page slow enough that users blame the record rather than the layout - which is how a design problem gets reported as a performance bug.',
+            exam: 'Page layout decides where components sit; Lightning App Builder decides what is on the page and which app it belongs to. A question about a crowded page is usually testing the split between the two.'
           }
         ]
       },
@@ -3414,6 +4058,21 @@ const ACADEMY = [
               'Explain what happens to the Salesforce Classic users during this rollout, and how you keep them working.'
             ],
             success: 'A console tab set with justified primary and secondary tabs and pane choices, a pinned-tab decision, a full navigation and workspace-folder plan, a utility bar specification, a named exclusion with its re-entry condition, a theme with two reasoned text treatments, a branding set with its scope, a clear three-layer explanation of theme / branding set / My Domain, a staged rollout with a stop condition, and a Classic continuity plan. All declarative, no code.'
+          },
+          {
+            t: 'case',
+            title: 'The logo that vanished after every deploy',
+            org: 'Harbourlight Hospice (charity, 60 staff)',
+            problem: 'The charity set its logo and colours directly in Setup, which looked right immediately. Then they started deploying their configuration from a repository, and every deploy put the branding back to the Salesforce default. The service desk logged the same ticket three times in a month, each time from a different person, each time phrased as "has the site been hacked".',
+            solution: 'The branding was rebuilt as a branding set with a Lightning theme that references it, because both are metadata and travel with a deployment. My Domain was configured once with the charity\'s own domain name, and the settings were deployed rather than set by hand.',
+            steps: [
+              'Put branding into a branding set rather than changing it in Setup.',
+              'Reference that branding set from a Lightning theme so the two travel together.',
+              'Configure My Domain once and set the custom domain in the domain settings, not per org.',
+              'Deploy the theme and branding set to a sandbox and confirm the logo survives before promoting.'
+            ],
+            gotcha: 'Branding set and theme are metadata. Branding changed directly in Setup is org configuration that a deploy overwrites - which is exactly why it disappears, and why the first instinct is always to suspect something worse.',
+            exam: 'Know which branding configuration travels with a deployment and which does not. The exam expects theme, branding set and My Domain to be treated as one deployment-aware problem.'
           }
         ]
       }
@@ -3533,7 +4192,38 @@ const ACADEMY = [
               ['Managed (2GP)', 'AppExchange/ISV distribution', 'Yes', 'IP protected, versioned, upgradeable']
             ]
           },
-          { t: 'callout', kind: 'warn', x: 'For Platform App Builder work in internal orgs, unmanaged and unlocked packages are most common.' }
+          { t: 'callout', kind: 'warn', x: 'For Platform App Builder work in internal orgs, unmanaged and unlocked packages are most common.' },
+          {
+            t: 'ex',
+            id: '15.1',
+            title: 'Choose the right package type',
+            obj: 'Decide between unlocked and unmanaged for a set of realistic internal requirements.',
+            stars: 2,
+            steps: [
+              'For each requirement below, name the package type you would use and justify it in one sentence. The justification matters more than the label.',
+              'R1: A shared library of common objects and flows that three internal teams will keep extending over the next two years.',
+              'R2: A one-off template org you are cloning so a new starter has a working sandbox in ten minutes.',
+              'R3: Bundling your org\'s configuration to hand to an external consultancy that will adapt it for their own client.',
+              'R4: You built a proof of concept, it works, and nobody is going to maintain it or push updates.',
+              'Name the one word that decides it in every case: does this thing need to be UPDATED in place later?'
+            ],
+            verify: 'The deciding word is upgradeable. R1 = unlocked: several consumers, and it must receive updates without re-deploying over the top. R2 = unmanaged: it is a snapshot, copied once, never upgraded. R3 = unmanaged: a single hand-off, adapted downstream, no upgrade path. R4 = unmanaged: no consumer to upgrade, and an unlocked package you never maintain is pure overhead. Unmanaged is the default when in doubt; unlocked only earns its keep when you are the author AND a consumer of the same package.'
+          },
+          {
+            t: 'case',
+            title: 'The template that could not be upgraded',
+            org: 'Vector Field Systems (field service software vendor, 30 staff)',
+            problem: 'The vendor packaged their whole product as an unmanaged package and installed it into a customer org. Ten months later the customer asked for a feature. The vendor edited the source, rebuilt the package, and told the customer to uninstall first and reinstall. Uninstalling removed the customer\'s own configuration along with it, because an unmanaged install cannot tell author code from customer code. The relationship did not survive it.',
+            solution: 'Rebuilt as an unlocked package with a namespace. The vendor now publishes versions, the customer upgrades in place, and the vendor\'s own metadata sits in a namespace the customer\'s administrator cannot edit by accident.',
+            steps: [
+              'Decide whether anything will ever need to be updated in the installed org.',
+              'If yes, use an unlocked package for internal work or managed 2GP for distribution - both are upgradeable.',
+              'Put the package in a namespace so author metadata is distinguishable from customer metadata.',
+              'Publish versions rather than shipping a rebuilt archive.'
+            ],
+            gotcha: 'Unmanaged packages are not upgradeable in place. To ship any change you uninstall, and uninstalling deletes the installed components along with everything the customer built on top of them. That is not a deployment inconvenience, it is data loss.',
+            exam: 'Managed 2GP and unlocked are upgradeable; unmanaged is not. Version numbering and namespace protection come with the upgradeable types, and that is the reasoning a question is asking for.'
+          }
         ]
       },
       {
@@ -3552,6 +4242,37 @@ const ACADEMY = [
               ['Source format', 'Decomposed files in directories (force-app/main/default)', 'Ideal for Git', 'Modern SFDX projects, scratch orgs'],
               ['Metadata format', 'Zipped .zip package', 'Less convenient', 'Legacy Ant, some retrieve/deploy workflows']
             ]
+          },
+          {
+            t: 'ex',
+            id: '15.2',
+            title: 'Read a manifest like an admin',
+            obj: 'Take a package.xml apart and state exactly what it will and will not do in the target org.',
+            stars: 2,
+            steps: [
+              'Use this manifest, the same one shown above:',
+              '<?xml version="1.0" encoding="UTF-8"?><Package xmlns="http://soap.sforce.com/2006/04/metadata"><types><members>Brightline_Sales_User</members><name>PermissionSet</name></types><version>58.0</version></Package>',
+              'State the API version it targets, and the single metadata component it names.',
+              'Say precisely what happens to every OTHER permission set in the target org when this deploys.',
+              'Decide whether this manifest moves any data. Explain your answer by naming the metadata type.',
+              'Rewrite the manifest to also retrieve the Brightline_Quote object and all of its fields. What would <types> look like now?'
+            ],
+            verify: 'API version 58.0; the component is the PermissionSet Brightline_Sales_User. Every other permission set is untouched — a manifest deploys only the members it lists, it does not wipe the type. It moves NO data: PermissionSet is configuration, and deploying it never brings Accounts or Opportunities with it. For the rewrite you need two <types> blocks, one <name>PermissionSet</name> and one <name>CustomObject</name> with <members>Brightline_Quote</members>; adding all fields means a second block with <name>CustomField</name> and <members>Brightline_Quote.*</members>, because fields are a separate metadata type from the object that holds them.'
+          },
+          {
+            t: 'case',
+            title: 'The deploy that took the permission sets with it',
+            org: 'Saltmarsh Marine Services (boat yard, 140 staff)',
+            problem: 'Deployments ran from a generated manifest that listed every permission set in the org. A consultant had spent two months building the app the yard managers used, and had edited two of those permission sets by hand because it was quicker than the builder. The next deploy overwrote both, removed the app, and nobody could work out why the configuration they had been looking at every morning had disappeared overnight.',
+            solution: 'A checked-in manifest with named members only, so a deploy can only touch what somebody deliberately listed and reviewed. Source format in the repository, so the manifest appears in the pull request and a wildcard is visibly a decision rather than a default.',
+            steps: [
+              'Replace wildcard members with named members in the manifest you deploy from.',
+              'Keep the manifest in source control so changes to it are reviewed like any other change.',
+              'Work in source format so the manifest and the components it names can be read in the same pull request.',
+              'Keep hand edits out of deployed components - anything edited outside the builder will be overwritten.'
+            ],
+            gotcha: 'A wildcard member deploys everything of that type. Wildcards are convenient in a sandbox and dangerous in production, where somebody has always edited something by hand and has no way of knowing it was about to be overwritten.',
+            exam: 'The manifest names the components a deploy touches, and source format is the decomposed layout that makes version control practical. Know exactly what deploying a wildcard member does.'
           }
         ]
       },
@@ -3577,7 +4298,22 @@ const ACADEMY = [
             'Validation rules preventing deployment of test data scenarios',
             'Incorrect API version mismatches',
             'Profile permissions referencing components that don\'t exist yet'
-          ] }
+          ] },
+          {
+            t: 'case',
+            title: 'The delete that was never deployed',
+            org: 'Eaglewood School Trust (multi-academy trust, 2,000 pupils)',
+            problem: 'The pilot team deleted their pilot field from the sandbox, saw it disappear, and assumed the deletion would travel with everything else. It did not, because the deployment had been run from a manifest listing only the components being added. The field was still in production four months after the cutover, still on the page layout, still in three reports, and still assigned in a permission set - so the trust could not tell which data was real and which was pilot residue.',
+            solution: 'A destructive changes manifest naming the field by its full API name, deployed alongside a regular manifest that updates the layout and the reports which referenced it. It was validated in a full-copy sandbox first, then deployed in a window with a rollback plan written before the window opened.',
+            steps: [
+              'Decide, change by change, whether it makes something disappear or only adds or changes behaviour.',
+              'Put everything that disappears in the destructive changes manifest, using full API names.',
+              'Put everything that is added or updated in the regular manifest, including the layout and report edits that referenced the removed component.',
+              'Validate in a full-copy sandbox, because that is the only place a deploy can be rehearsed honestly.'
+            ],
+            gotcha: 'Deleting something in a sandbox does not delete it in production. Removal needs its own manifest, and if anything still references the component the deploy fails - which is the deploy doing you a favour, because it has just told you what to clean up first.',
+            exam: 'Normal deployments add and update. Destructive changes remove. The two are separate files, both are needed for a clean cutover, and the rule for deciding which is which is whether the change makes something disappear from the org.'
+          }
         ]
       },
       {
@@ -3587,7 +4323,42 @@ const ACADEMY = [
           { t: 'p', x: 'For App Builders, the key is to think in terms of metadata dependencies and safe promotion. Validate early and often.' },
           { t: 'selfcheck', q: 'True or false: Deployments move both metadata and data records.', a: 'False' },
           { t: 'selfcheck', q: 'Which package type is upgradeable and typically used for internal modular development?', a: 'Unlocked packages' },
-          { t: 'selfcheck', q: 'What file defines which metadata components are included in a retrieve/deploy?', a: 'package.xml (manifest)' }
+          { t: 'selfcheck', q: 'What file defines which metadata components are included in a retrieve/deploy?', a: 'package.xml (manifest)' },
+          {
+            t: 'proj',
+            id: '15.3',
+            title: 'Plan a release that deletes things',
+            obj: 'Classify a real change set into normal deploys and destructive changes, and produce the two manifests to match.',
+            stars: 3,
+            reqs: [
+              'Scenario: Brightline is cutting over from the pilot configuration to the production one, and part of that means REMOVING metadata that the pilot created. You own the deployment.',
+              'Classify each change below as NORMAL deploy or DESTRUCTIVE. For every destructive one, name the full API name you would put in destructiveChanges.xml.',
+              'C1: Add a new field Warranty_Months__c to Contract.',
+              'C2: Delete the Pilot_Flag__c field that the pilot team added to Opportunity.',
+              'C3: Change the label of Account.AccountNumber from "Account Number" to "Customer Number".',
+              'C4: Remove Pilot_Flag__c from the Opportunity page layout, but keep the field.',
+              'C5: Deploy version 4 of the Quote_Approval flow over version 3.',
+              'C6: Retire the old Quote_Request__c object now that orders are captured directly on Opportunity.',
+              'Write the two manifests: what belongs in package.xml and what belongs in destructiveChanges.xml for the whole change set.',
+              'State the order you would run them in, and the one thing you must verify in a sandbox before any of it touches production.'
+            ],
+            success: 'Six changes classified with a reason each, a destructiveChanges.xml naming Pilot_Flag__c and Quote_Request__c by full API name, a package.xml carrying only the additive and update components, and an explicit sandbox-first validation step. Remember the rule you are applying: if the change makes something DISAPPEAR from the org it is destructive; if it only adds something or changes how existing things behave, it is a normal deploy.'
+          },
+          {
+            t: 'case',
+            title: 'The sandbox that was not like production',
+            org: 'Pinewood Montessori Trust (nursery group, 9 settings, 140 staff)',
+            problem: 'Deployments validated cleanly in the developer sandbox every single time, and then failed in production. The difference was a validation rule on Contact that the sandbox did not have - added by an admin two years earlier by hand, never written down, and referenced by a profile the deployment touched. It failed on the profile, not on the rule, so the error message pointed at the wrong thing entirely.',
+            solution: 'A full-copy sandbox refreshed from production on a schedule, with everything changed from that point onwards made declaratively so it exists in the repository. The release checklist now requires a validation-only run to be green in the full copy before anything is scheduled for production, and the admin hand edits were written down and brought under management.',
+            steps: [
+              'Refresh a full-copy sandbox from production regularly rather than relying on a small developer sandbox.',
+              'Record every hand-made change so it can be recreated, and then bring it under management.',
+              'Run a validation-only deployment first and read the whole result, not just the first error.',
+              'Only schedule the real deployment once validation is green in an environment that matches production.'
+            ],
+            gotcha: 'A small sandbox is not a rehearsal for production. Anything set up by hand in production - rules, permission sets, flows - is invisible until the deploy reaches it, and the failure surfaces on whatever component referenced the hand-made piece rather than on the piece itself.',
+            exam: 'Validate first, deploy incrementally, check dependencies, and handle profiles and permission sets deliberately. Knowing that a validation-only deployment exists and belongs at the start is most of the marks.'
+          }
         ]
       }
     ],

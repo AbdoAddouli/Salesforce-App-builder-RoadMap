@@ -156,6 +156,23 @@ ok("exercise has data-ex-id", !!v.querySelector(".ex-card[data-ex-id]"));
 ok("rating buttons present", v.querySelectorAll(".rate-btn").length > 0);
 ok("answer reveal present", !!v.querySelector("details.ex-answer"));
 
+/* real-world case study block. `case` is reference material, so it must NOT
+ * borrow any of the graded-activity affordances (an ex-id, star rating) or the
+ * exercise card styling - a case that looked like an exercise would make it
+ * look gradable when it is not. */
+v = route("#/lesson/fundamentals/0");
+const cs = v.querySelector(".case-card");
+ok("case study rendered", !!cs);
+ok("case study names an org", !!(cs && cs.querySelector(".case-org")));
+ok("case study has a title", !!(cs && cs.querySelector(".case-title")));
+ok("case study shows problem, solution, build steps and gotcha",
+   cs && cs.querySelectorAll(".case-label").length === 3 && cs.querySelectorAll(".case-list li").length > 0 &&
+   !!cs.querySelector(".case-gotcha"),
+   cs ? "labels=" + cs.querySelectorAll(".case-label").length +
+           " steps=" + cs.querySelectorAll(".case-list li").length : "(no .case-card)");
+ok("case study carries no exercise id", cs && !cs.querySelector("[data-ex-id]"));
+ok("case study is not styled as a graded exercise", cs && !cs.classList.contains("ex-card"));
+
 /* ---- quiz: pick the right option, expect grading ---- */
 v = route("#/quiz/fundamentals");
 ok("quiz renders", v.querySelectorAll(".q-item").length > 0, String(v.querySelectorAll(".q-item").length));
